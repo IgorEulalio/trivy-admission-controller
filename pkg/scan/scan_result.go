@@ -112,7 +112,7 @@ type Nvd struct {
 	V3Score  float64 `json:"V3Score"`
 }
 
-func (r Result) ContainsVulnBySeverity(severity string) bool {
+func (r Result) ContainsVulnerabilityBySeverity(severity string) bool {
 	for _, result := range r.Results {
 		for _, vuln := range result.Vulnerabilities {
 			if vuln.Severity == severity {
@@ -123,7 +123,7 @@ func (r Result) ContainsVulnBySeverity(severity string) bool {
 	return false
 }
 
-func (r Result) ContainsVuln() bool {
+func (r Result) ContainsVulnerability() bool {
 	for _, result := range r.Results {
 		if len(result.Vulnerabilities) > 0 {
 			return true

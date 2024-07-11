@@ -28,28 +28,33 @@ func Validate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Implement your validation logic here
-	allowed := true
-
 	scanner, err := scan.NewFromAdmissionReview(admissionReview)
 	if err != nil {
 		return
 	}
 
-	outputFilePath, err := scanner.Scan()
+	outputFilePaths, err := scanner.Scan()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	allowed, err = scanner.AnalyzeScanResult(outputFilePath)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	var containsVulnerability bool
+
+	for _, path := range outputFilePaths {
+		containsVulnerability, err = scanner.AnalyzeScanResult(path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if containsVulnerability {
+			containsVulnerability = true
+		}
 	}
 
 	admissionResponse := &admissionv1.AdmissionResponse{
-		Allowed: allowed,
+		Allowed: !containsVulnerability,
 	}
 
 	admissionReview.Response = admissionResponse

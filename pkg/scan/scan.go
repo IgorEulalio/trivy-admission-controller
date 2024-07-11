@@ -28,7 +28,7 @@ func NewFromAdmissionReview(ar v1.AdmissionReview) (Scanner, error) {
 
 	images, err := getImagesFromAdmissionReview(ar)
 	if err != nil {
-		return Scanner{}, fmt.Errorf("Error extracing images")
+		return Scanner{}, fmt.Errorf("error extracing images")
 	}
 
 	var outputPath string
@@ -45,30 +45,35 @@ func NewFromAdmissionReview(ar v1.AdmissionReview) (Scanner, error) {
 	}, nil
 }
 
-func (s Scanner) Scan() (outputFile string, error error) {
+func (s Scanner) Scan() (outputFiles []string, error error) {
 	logger := logging.Logger()
+
+	var outputFilePaths []string
 
 	err := os.Mkdir(s.OutputDir, filePermission)
 	if err != nil && !errors.Is(err, os.ErrExist) {
-		return "", err
+		return outputFilePaths, err
 	}
 
-	outputFilePath := fmt.Sprintf("%s-%s", "scan", time.Now().Format("02:15:04"))
-	command := fmt.Sprintf("/opt/homebrew/bin/trivy image %s -o %s --scanners %s --format json", strings.Join(s.ImagesName, ","), outputFilePath, strings.Join(s.ScannerModes, ","))
+	for _, image := range s.ImagesName {
+		outputFilePath := fmt.Sprintf("%s-%s.json", image, time.Now().Format("02:15:04"))
+		command := fmt.Sprintf("/opt/homebrew/bin/trivy image %s -o %s --scanners %s --format json", image, outputFilePath, strings.Join(s.ScannerModes, ","))
+		logger.Debug().Msgf("Running command: %s for image %s", command, image)
 
-	logger.Debug().Msgf("Running command: %s", command)
+		cmd := exec.Command("sh", "-c", command)
+		var out, stderr strings.Builder
+		cmd.Stdout = &out
+		cmd.Stderr = &stderr
 
-	cmd := exec.Command("sh", "-c", command)
-	var out, stderr strings.Builder
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
+		err = cmd.Run()
+		if err != nil {
+			return outputFilePaths, fmt.Errorf("command execution failed: %w, stderr: %s", err, stderr.String())
+		}
 
-	err = cmd.Run()
-	if err != nil {
-		return "", fmt.Errorf("command execution failed: %w, stderr: %s", err, stderr.String())
+		outputFilePaths = append(outputFilePaths, outputFilePath)
 	}
 
-	return outputFilePath, nil
+	return outputFilePaths, nil
 }
 
 func (s Scanner) AnalyzeScanResult(outputFilePath string, optSeverity ...string) (bool, error) {
@@ -85,13 +90,15 @@ func (s Scanner) AnalyzeScanResult(outputFilePath string, optSeverity ...string)
 
 	if len(optSeverity) > 0 {
 		severity := optSeverity[0]
-		return result.ContainsVulnBySeverity(severity), nil
+		return result.ContainsVulnerabilityBySeverity(severity), nil
 	}
 
-	return result.ContainsVuln(), nil
+	return result.ContainsVulnerability(), nil
 }
 
 func getImagesFromAdmissionReview(ar v1.AdmissionReview) ([]string, error) {
+	logger := logging.Logger()
+
 	var images []string
 
 	rawObject := ar.Request.Object.Raw
