@@ -1,0 +1,14 @@
+.vscode/**
+config.yaml
+**/config.yaml
+falco-talon
+dist/
+Memory
+.idea/**
+tmp
+DO-NOT-COMMIT-local-setup.yaml
+deployment/
+.env
+scan-*
+*.json
+
