@@ -1,13 +1,15 @@
 package scan
 
-import "time"
+import (
+	"time"
+)
 
-type Result struct {
-	SchemaVersion int       `json:"SchemaVersion"`
-	ArtifactName  string    `json:"ArtifactName"`
-	ArtifactType  string    `json:"ArtifactType"`
-	Metadata      Metadata  `json:"Metadata"`
-	Results       []Results `json:"Results"`
+type ScanResult struct {
+	SchemaVersion   int              `json:"SchemaVersion"`
+	ArtifactName    string           `json:"ArtifactName"`
+	ArtifactType    string           `json:"ArtifactType"`
+	Metadata        Metadata         `json:"Metadata"`
+	DetailedResults []DetailedResult `json:"Results"`
 }
 
 type Metadata struct {
@@ -63,7 +65,7 @@ type ExposedPorts struct {
 	Eight0TCP struct{} `json:"80/tcp"`
 }
 
-type Results struct {
+type DetailedResult struct {
 	Target          string          `json:"Target"`
 	Class           string          `json:"Class"`
 	Type            string          `json:"Type"`
@@ -112,8 +114,18 @@ type Nvd struct {
 	V3Score  float64 `json:"V3Score"`
 }
 
-func (r Result) ContainsVulnerabilityBySeverity(severity string) bool {
-	for _, result := range r.Results {
+func (r ScanResult) AnalyzeScanResult(optSeverity ...string) (bool, error) {
+
+	if len(optSeverity) > 0 {
+		severity := optSeverity[0]
+		return r.ContainsVulnerabilityBySeverity(severity), nil
+	}
+
+	return r.ContainsVulnerability(), nil
+}
+
+func (r ScanResult) ContainsVulnerabilityBySeverity(severity string) bool {
+	for _, result := range r.DetailedResults {
 		for _, vuln := range result.Vulnerabilities {
 			if vuln.Severity == severity {
 				return true
@@ -123,8 +135,8 @@ func (r Result) ContainsVulnerabilityBySeverity(severity string) bool {
 	return false
 }
 
-func (r Result) ContainsVulnerability() bool {
-	for _, result := range r.Results {
+func (r ScanResult) ContainsVulnerability() bool {
+	for _, result := range r.DetailedResults {
 		if len(result.Vulnerabilities) > 0 {
 			return true
 		}

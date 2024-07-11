@@ -2,11 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan"
 	admissionv1 "k8s.io/api/admission/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func Validate(w http.ResponseWriter, r *http.Request) {
@@ -33,28 +35,42 @@ func Validate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outputFilePaths, err := scanner.Scan()
+	scanResults, err := scanner.Scan()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	var containsVulnerability bool
+	var admissionResponse *admissionv1.AdmissionResponse
 
-	for _, path := range outputFilePaths {
-		containsVulnerability, err = scanner.AnalyzeScanResult(path)
+	for _, result := range scanResults {
+		containsVulnerability, err = result.AnalyzeScanResult()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
 		if containsVulnerability {
-			containsVulnerability = true
-		}
-	}
+			admissionResponse = &admissionv1.AdmissionResponse{
+				Allowed: false,
+				Result: &metav1.Status{
+					Message: fmt.Sprintf("Image %s with digest %s contains vulnerabilities", result.ArtifactName, result.Metadata.ImageID),
+				},
+			}
 
-	admissionResponse := &admissionv1.AdmissionResponse{
-		Allowed: !containsVulnerability,
+			response, err := json.Marshal(admissionReview)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(response)
+		} else {
+			admissionResponse = &admissionv1.AdmissionResponse{
+				Allowed: true,
+			}
+		}
 	}
 
 	admissionReview.Response = admissionResponse

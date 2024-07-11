@@ -45,14 +45,14 @@ func NewFromAdmissionReview(ar v1.AdmissionReview) (Scanner, error) {
 	}, nil
 }
 
-func (s Scanner) Scan() (outputFiles []string, error error) {
+func (s Scanner) Scan() ([]ScanResult, error) {
 	logger := logging.Logger()
 
-	var outputFilePaths []string
+	var results []ScanResult
 
 	err := os.Mkdir(s.OutputDir, filePermission)
 	if err != nil && !errors.Is(err, os.ErrExist) {
-		return outputFilePaths, err
+		return nil, err
 	}
 
 	for _, image := range s.ImagesName {
@@ -67,37 +67,36 @@ func (s Scanner) Scan() (outputFiles []string, error error) {
 
 		err = cmd.Run()
 		if err != nil {
-			return outputFilePaths, fmt.Errorf("command execution failed: %w, stderr: %s", err, stderr.String())
+			return nil, err
 		}
 
-		outputFilePaths = append(outputFilePaths, outputFilePath)
+		result, err2 := getResultFromFileSystem(outputFilePath)
+		if err2 != nil {
+			return nil, err2
+		}
+
+		results = append(results, *result)
 	}
 
-	return outputFilePaths, nil
+	return results, nil
 }
 
-func (s Scanner) AnalyzeScanResult(outputFilePath string, optSeverity ...string) (bool, error) {
+func getResultFromFileSystem(path string) (*ScanResult, error) {
+	var result ScanResult
 
-	file, err := os.ReadFile(outputFilePath)
+	file, err := os.ReadFile(path)
 	if err != nil {
-		return false, err
+		return nil, fmt.Errorf("error reading file: %w", err)
 	}
 
-	var result Result
 	if err = json.Unmarshal(file, &result); err != nil {
-		return false, err
+		return nil, fmt.Errorf("error unmarshaling file: %w", err)
 	}
 
-	if len(optSeverity) > 0 {
-		severity := optSeverity[0]
-		return result.ContainsVulnerabilityBySeverity(severity), nil
-	}
-
-	return result.ContainsVulnerability(), nil
+	return &result, nil
 }
 
 func getImagesFromAdmissionReview(ar v1.AdmissionReview) ([]string, error) {
-	logger := logging.Logger()
 
 	var images []string
 
