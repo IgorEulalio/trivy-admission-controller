@@ -48,11 +48,32 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var imagesToBeScanned []string
+	var digest string
+	var image *scan.Image
+	shallRetrieveImageFromCache := true
 
-	for _, image := range scanner.ImagesName {
-		_, ok := h.Cache.Get(image)
-		if !ok {
-			imagesToBeScanned = append(imagesToBeScanned, image)
+	for _, imagePullString := range scanner.ImagesPullStrings {
+		image, err = scan.NewImageFromPullString(imagePullString)
+		if err != nil {
+			shallRetrieveImageFromCache = false
+			logger.Warn().Msgf("error parsing image manifest into repository and tag, will not attemp to fetch image on cache: %v", err)
+		} else {
+			digest, err = image.GetDigest()
+			image.Digest = digest // TODO - Improve this
+			if err != nil {
+				logger.Warn().Msgf("error getting image manifest, will not attemp to fetch image on cache: %v", err)
+			}
+		}
+		if shallRetrieveImageFromCache {
+			logger.Debug().Msgf("attempting to get image from cache %v with digest %v", image.PullString, image.Digest)
+			_, ok := h.Cache.Get(digest)
+			if !ok {
+				imagesToBeScanned = append(imagesToBeScanned, image.PullString)
+			} else {
+				logger.Debug().Msgf("image %v with digest %v found on cache, skipping scan", image.PullString, image.Digest)
+			}
+		} else {
+			imagesToBeScanned = append(imagesToBeScanned, image.PullString)
 		}
 	}
 
@@ -88,16 +109,18 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 				},
 			}
 
-			response, err := json.Marshal(admissionReview)
-			if err != nil {
+			response, err2 := json.Marshal(admissionReview)
+			if err2 != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
 
-			err = h.Cache.Set(result.ArtifactName, "true", 1*time.Hour)
+			// ImageID from trivy scan result matches config.digest from docker hub response
+			err = h.Cache.Set(result.Metadata.ImageID, "true", 1*time.Hour)
 			if err != nil {
 				logger.Warn().Msgf("Error setting cache: %v", err)
 			}
+			logger.Debug().Msgf("Image %s with digest %s doesn't contains vulnerabilities, setting cache", result.ArtifactName, result.Metadata.ImageID)
 
 			w.Header().Set("Content-Type", "application/json")
 			w.Write(response)

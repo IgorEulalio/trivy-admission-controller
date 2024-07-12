@@ -27,6 +27,7 @@ type CacheConfig struct {
 type Config struct {
 	Port        int         `mapstructure:"port"`
 	CacheConfig CacheConfig `mapstructure:"cache"`
+	DockerToken string      `mapstructure:"docker_token"`
 }
 
 var Cfg Config
@@ -47,17 +48,14 @@ func InitConfig() {
 	viper.SetConfigType("yaml")
 
 	setDefaultValues()
-	// Read the configuration file
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Error reading config file, %s", err)
 	}
 
-	// Unmarshal the configuration file into the Config struct
 	if err := viper.Unmarshal(&Cfg); err != nil {
 		log.Fatalf("Unable to decode into struct, %v", err)
 	}
 
-	// Watch for changes in the configuration file
 	viper.OnConfigChange(func(e fsnotify.Event) {
 		log.Println("Config file changed:", e.Name)
 		if err := viper.Unmarshal(&Cfg); err != nil {

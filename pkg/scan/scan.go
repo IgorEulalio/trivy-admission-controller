@@ -16,10 +16,10 @@ import (
 )
 
 type Scanner struct {
-	ImagesName   []string
-	DryRun       bool
-	OutputDir    string
-	ScannerModes []string
+	ImagesPullStrings []string
+	DryRun            bool
+	OutputDir         string
+	ScannerModes      []string
 }
 
 const filePermission = 0755
@@ -38,10 +38,10 @@ func NewFromAdmissionReview(ar v1.AdmissionReview) (Scanner, error) {
 	}
 
 	return Scanner{
-		ImagesName:   images,
-		DryRun:       *ar.Request.DryRun,
-		OutputDir:    outputPath,
-		ScannerModes: []string{"vuln"},
+		ImagesPullStrings: images,
+		DryRun:            *ar.Request.DryRun,
+		OutputDir:         outputPath,
+		ScannerModes:      []string{"vuln"},
 	}, nil
 }
 
@@ -56,7 +56,7 @@ func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
 	}
 
 	for _, image := range imagesToBeScanned {
-		outputFilePath := fmt.Sprintf("%s-%s.json", image, time.Now().Format("02:15:04"))
+		outputFilePath := fmt.Sprintf("%s-%s.json", "scan", time.Now().Format("02:15:04"))
 		command := fmt.Sprintf("/opt/homebrew/bin/trivy image %s -o %s --scanners %s --format json", image, outputFilePath, strings.Join(s.ScannerModes, ","))
 		logger.Debug().Msgf("Running command: %s for image %s", command, image)
 
@@ -122,7 +122,6 @@ func getImagesFromAdmissionReview(ar v1.AdmissionReview) ([]string, error) {
 			return nil, err
 		}
 		images = append(images, extractContainerImagesFromPodSpec(&ds.Spec.Template.Spec)...)
-	// Add more cases as needed
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", groupVersionKind.Kind)
 	}

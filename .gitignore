@@ -11,4 +11,5 @@ deployment/
 .env
 scan-*
 *.json
+docker.sh
 

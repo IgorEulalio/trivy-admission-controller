@@ -1,4 +1,5 @@
 port: 5001
+docker_token: <placeholder>
 #cache:
 #  redis:
 #    port:
