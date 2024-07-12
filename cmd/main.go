@@ -2,22 +2,31 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/api"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 )
 
 func main() {
+
 	logging.InitLogger()
 	logger := logging.Logger()
 
-	addr := os.Getenv("PORT")
-	logger.Info().Msgf("Starting server on port %s", addr)
+	config.InitConfig()
 
-	http.HandleFunc("/validate", api.Validate)
-	//log.Fatal(http.ListenAndServeTLS(addr, "/path/to/tls.crt", "/path/to/tls.key", nil))
-	log.Fatal(http.ListenAndServe(addr, nil))
+	c, err := cache.NewCacheFromConfig(config.Cfg)
+	if err != nil {
+		logger.Fatal().Msgf("Error creating cache: %v", err)
+	}
+
+	handler := api.NewHandler(c)
+
+	http.HandleFunc("/validate", handler.Validate)
+	logger.Info().Msgf("Starting server on port %v", config.Cfg.Port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf("%s:%v", "127.0.0.1", config.Cfg.Port), nil))
 }

@@ -45,7 +45,7 @@ func NewFromAdmissionReview(ar v1.AdmissionReview) (Scanner, error) {
 	}, nil
 }
 
-func (s Scanner) Scan() ([]ScanResult, error) {
+func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
 	logger := logging.Logger()
 
 	var results []ScanResult
@@ -55,7 +55,7 @@ func (s Scanner) Scan() ([]ScanResult, error) {
 		return nil, err
 	}
 
-	for _, image := range s.ImagesName {
+	for _, image := range imagesToBeScanned {
 		outputFilePath := fmt.Sprintf("%s-%s.json", image, time.Now().Format("02:15:04"))
 		command := fmt.Sprintf("/opt/homebrew/bin/trivy image %s -o %s --scanners %s --format json", image, outputFilePath, strings.Join(s.ScannerModes, ","))
 		logger.Debug().Msgf("Running command: %s for image %s", command, image)

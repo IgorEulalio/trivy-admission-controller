@@ -1,0 +1,9 @@
+port: 5001
+#cache:
+#  redis:
+#    port:
+#    password:
+#    database:
+#  local:
+#    expiration: 10
+#    max_size: 100
