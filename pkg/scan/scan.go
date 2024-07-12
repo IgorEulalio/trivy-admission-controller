@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 	v1 "k8s.io/api/admission/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -31,16 +32,10 @@ func NewFromAdmissionReview(ar v1.AdmissionReview) (Scanner, error) {
 		return Scanner{}, fmt.Errorf("error extracing images")
 	}
 
-	var outputPath string
-	outputPath, ok := os.LookupEnv("OUTPUT_PATH")
-	if !ok {
-		outputPath = "/tmp"
-	}
-
 	return Scanner{
 		ImagesPullStrings: images,
 		DryRun:            *ar.Request.DryRun,
-		OutputDir:         outputPath,
+		OutputDir:         config.Cfg.OutputDir,
 		ScannerModes:      []string{"vuln"},
 	}, nil
 }
@@ -56,7 +51,7 @@ func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
 	}
 
 	for _, image := range imagesToBeScanned {
-		outputFilePath := fmt.Sprintf("%s-%s.json", "scan", time.Now().Format("02:15:04"))
+		outputFilePath := fmt.Sprintf("%s/%s-%s.json", s.OutputDir, "scan", time.Now().Format("02:15:04"))
 		command := fmt.Sprintf("/opt/homebrew/bin/trivy image %s -o %s --scanners %s --format json", image, outputFilePath, strings.Join(s.ScannerModes, ","))
 		logger.Debug().Msgf("Running command: %s for image %s", command, image)
 
@@ -67,7 +62,7 @@ func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
 
 		err = cmd.Run()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error executing trivy scan: %v. Stdout: %v, Stderr: %v", err, out.String(), stderr.String())
 		}
 
 		result, err2 := getResultFromFileSystem(outputFilePath)

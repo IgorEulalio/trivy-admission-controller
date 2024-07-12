@@ -114,7 +114,7 @@ type Nvd struct {
 	V3Score  float64 `json:"V3Score"`
 }
 
-func (r ScanResult) AnalyzeScanResult(optSeverity ...string) (bool, error) {
+func (r ScanResult) HasVulnerabilities(optSeverity ...string) (bool, error) {
 
 	if len(optSeverity) > 0 {
 		severity := optSeverity[0]

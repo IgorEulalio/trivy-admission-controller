@@ -28,6 +28,7 @@ type Config struct {
 	Port        int         `mapstructure:"port"`
 	CacheConfig CacheConfig `mapstructure:"cache"`
 	DockerToken string      `mapstructure:"docker_token"`
+	OutputDir   string      `mapstructure:"output_dir"`
 }
 
 var Cfg Config
@@ -70,4 +71,5 @@ func setDefaultValues() {
 	viper.SetDefault("port", 8080)
 	viper.SetDefault("cache.local.expiration", 200)
 	viper.SetDefault("cache.local.max_size", 5000)
+	viper.SetDefault("output_dir", "./")
 }
