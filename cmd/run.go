@@ -1,5 +1,4 @@
-// main.go
-package main
+package cmd
 
 import (
 	"fmt"
@@ -12,7 +11,7 @@ import (
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 )
 
-func main() {
+func Run() {
 
 	logging.InitLogger()
 	logger := logging.Logger()

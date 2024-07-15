@@ -1,0 +1,17 @@
+defaultBaseImage: cgr.dev/chainguard/static
+defaultPlatforms:
+  - linux/arm64
+  - linux/amd64
+
+builds:
+  - id: trivy-admission-controller
+    dir: .
+    main: .
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -extldflags "-static"
+      - "{{ .Env.LDFLAGS }}"

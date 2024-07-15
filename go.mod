@@ -7,6 +7,7 @@ toolchain go1.22.5
 require (
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-redis/redis/v8 v8.11.5
+	github.com/magefile/mage v1.15.0
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/viper v1.19.0
 	k8s.io/api v0.30.2
