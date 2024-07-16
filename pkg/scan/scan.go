@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 	v1 "k8s.io/api/admission/v1"
@@ -21,11 +22,16 @@ type Scanner struct {
 	DryRun            bool
 	OutputDir         string
 	ScannerModes      []string
+	Cache             cache.Cache
 }
 
-const filePermission = 0755
+const (
+	StrAllowed     = "allowed"
+	StrDenied      = "denied"
+	filePermission = 0755
+)
 
-func NewFromAdmissionReview(ar v1.AdmissionReview) (Scanner, error) {
+func NewFromAdmissionReview(ar v1.AdmissionReview, c cache.Cache) (Scanner, error) {
 
 	images, err := getImagesFromAdmissionReview(ar)
 	if err != nil {
@@ -37,6 +43,7 @@ func NewFromAdmissionReview(ar v1.AdmissionReview) (Scanner, error) {
 		DryRun:            *ar.Request.DryRun,
 		OutputDir:         config.Cfg.OutputDir,
 		ScannerModes:      []string{"vuln"},
+		Cache:             c,
 	}, nil
 }
 
@@ -74,6 +81,51 @@ func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
 	}
 
 	return results, nil
+}
+
+func (s Scanner) GetImagesThatNeedScan() (imagesToBeScanned []string, imagesDeniedOnCache []string, imagesAllowedOnCache []string) {
+	logger := logging.Logger()
+
+	var toBeScanned []string
+	var deniedOnCache []string
+	var allowedOnCache []string
+	var digest string
+	var image *Image
+
+	shallRetrieveImageFromCache := true
+	var err error
+
+	for _, imagePullString := range s.ImagesPullStrings {
+		image, err = NewImageFromPullString(imagePullString)
+		if err != nil {
+			shallRetrieveImageFromCache = false
+			logger.Warn().Msgf("error parsing image manifest into repository and tag, will not attemp to fetch image on cache: %v", err)
+		} else {
+			digest, err = image.GetDigest()
+			image.Digest = digest // TODO - Improve this
+			if err != nil {
+				logger.Warn().Msgf("error getting image manifest, will not attemp to fetch image on cache: %v", err)
+			}
+			shallRetrieveImageFromCache = false
+		}
+		if shallRetrieveImageFromCache {
+			logger.Debug().Msgf("attempting to get image from cache %v with digest %v", image.PullString, image.Digest)
+			allowOrDeny, ok := s.Cache.Get(digest)
+			if !ok {
+				toBeScanned = append(imagesToBeScanned, image.PullString)
+			} else if allowOrDeny == StrAllowed {
+				allowedOnCache = append(imagesAllowedOnCache, image.PullString)
+				logger.Debug().Msgf("image %v with digest %v found on cache with status %v, skipping scan", image.PullString, image.Digest, StrAllowed)
+			} else if allowOrDeny == StrDenied {
+				deniedOnCache = append(imagesDeniedOnCache, image.PullString)
+				logger.Debug().Msgf("image %v with digest %v found on cache with status %v, denying scan", image.PullString, image.Digest, StrDenied)
+			}
+		} else {
+			toBeScanned = append(imagesToBeScanned, image.PullString)
+		}
+	}
+
+	return toBeScanned, deniedOnCache, allowedOnCache
 }
 
 func getResultFromFileSystem(path string) (*ScanResult, error) {
