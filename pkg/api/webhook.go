@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan"
 	admissionv1 "k8s.io/api/admission/v1"
@@ -16,11 +17,12 @@ import (
 )
 
 type Handler struct {
-	Cache cache.Cache
+	Cache            cache.Cache
+	KubernetesClient kubernetes.Client
 }
 
-func NewHandler(c cache.Cache) *Handler {
-	return &Handler{Cache: c}
+func NewHandler(c cache.Cache, client *kubernetes.Client) *Handler {
+	return &Handler{Cache: c, KubernetesClient: *client}
 }
 
 func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +45,7 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scanner, err := scan.NewFromAdmissionReview(admissionReview, h.Cache)
+	scanner, err := scan.NewFromAdmissionReview(admissionReview, h.Cache, h.KubernetesClient)
 	if err != nil {
 		return
 	}
@@ -58,14 +60,14 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 		admissionResponse = &admissionv1.AdmissionResponse{
 			Allowed: true,
 			Result: &metav1.Status{
-				Message: fmt.Sprintf("image scan result cached for images: %v, allowing.", strings.Join(imagesAllowedOnCache, ", ")),
+				Message: fmt.Sprintf("image scan result present on data store for images: %v, allowing.", strings.Join(imagesAllowedOnCache, ", ")),
 			},
 		}
 	} else if len(imagesDeniedOnCache) > 0 {
 		admissionResponse = &admissionv1.AdmissionResponse{
-			Allowed: true,
+			Allowed: false,
 			Result: &metav1.Status{
-				Message: fmt.Sprintf("image scan result cached for images: %v, denying.", strings.Join(imagesDeniedOnCache, ", ")),
+				Message: fmt.Sprintf("image scan result present on data store for images: %v, denying.", strings.Join(imagesDeniedOnCache, ", ")),
 			},
 		}
 	} else {
@@ -91,11 +93,10 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// ImageID from trivy scan result matches config.digest from docker hub response
-			err = h.Cache.Set(result.Metadata.ImageID, scan.StrDenied, 1*time.Hour) // how can images that are not in registries contain an ImageID??
+			err := scanner.SetImageOnDataStore(result.Metadata.ImageID, scan.StrDenied, 1*time.Hour)
 			if err != nil {
 				logger.Warn().Msgf("Error setting cache: %v", err)
 			}
-			logger.Debug().Msgf(admissionResponse.Result.Message)
 		} else {
 			admissionResponse = &admissionv1.AdmissionResponse{
 				Allowed: true,
@@ -104,11 +105,10 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 				},
 			}
 			// ImageID from trivy scan result matches config.digest from docker hub response
-			err = h.Cache.Set(result.Metadata.ImageID, scan.StrAllowed, 1*time.Hour)
+			err := scanner.SetImageOnDataStore(result.Metadata.ImageID, scan.StrAllowed, 1*time.Hour)
 			if err != nil {
-				logger.Warn().Msgf("Error setting cache: %v", err)
+				logger.Warn().Msgf("Error inputing image into data store: %v", err)
 			}
-			logger.Debug().Msgf(admissionResponse.Result.Message)
 		}
 	}
 

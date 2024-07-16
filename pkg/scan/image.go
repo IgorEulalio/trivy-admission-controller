@@ -12,10 +12,12 @@ import (
 )
 
 type Image struct {
-	Repository string
-	Tag        string
-	PullString string
-	Digest     string
+	Repository      string
+	Tag             string
+	PullString      string
+	Digest          string
+	FormmatedDigest string
+	Allowed         bool
 }
 
 type ManifestConfig struct {

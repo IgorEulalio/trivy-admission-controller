@@ -1,6 +1,8 @@
 port: 5001
 docker_token: <placeholder>
 output_dir: "./"
+kube_config: "/Users/igoreulalio/.kube/config"
+namespace: default
 #cache:
 #  redis:
 #    port:

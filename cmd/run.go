@@ -8,6 +8,7 @@ import (
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/api"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 )
 
@@ -23,7 +24,12 @@ func Run() {
 		logger.Fatal().Msgf("Error creating cache: %v", err)
 	}
 
-	handler := api.NewHandler(c)
+	err = kubernetes.Init()
+	if err != nil {
+		logger.Fatal().Msgf("Error creating kubernetes client: %v", err)
+	}
+
+	handler := api.NewHandler(c, kubernetes.GetClient())
 
 	http.HandleFunc("/validate", handler.Validate)
 	logger.Info().Msgf("Starting server on port %v", config.Cfg.Port)

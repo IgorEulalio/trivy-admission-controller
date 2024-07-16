@@ -29,6 +29,8 @@ type Config struct {
 	CacheConfig CacheConfig `mapstructure:"cache"`
 	DockerToken string      `mapstructure:"docker_token"`
 	OutputDir   string      `mapstructure:"output_dir"`
+	KubeConfig  string      `mapstructure:"kube_config"`
+	Namespace   string      `mapstructure:"namespace"`
 }
 
 var Cfg Config

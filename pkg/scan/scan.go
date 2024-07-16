@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,10 +12,14 @@ import (
 
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 	v1 "k8s.io/api/admission/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 type Scanner struct {
@@ -23,6 +28,7 @@ type Scanner struct {
 	OutputDir         string
 	ScannerModes      []string
 	Cache             cache.Cache
+	KubernetesClient  kubernetes.Client
 }
 
 const (
@@ -31,7 +37,7 @@ const (
 	filePermission = 0755
 )
 
-func NewFromAdmissionReview(ar v1.AdmissionReview, c cache.Cache) (Scanner, error) {
+func NewFromAdmissionReview(ar v1.AdmissionReview, c cache.Cache, client kubernetes.Client) (Scanner, error) {
 
 	images, err := getImagesFromAdmissionReview(ar)
 	if err != nil {
@@ -44,6 +50,7 @@ func NewFromAdmissionReview(ar v1.AdmissionReview, c cache.Cache) (Scanner, erro
 		OutputDir:         config.Cfg.OutputDir,
 		ScannerModes:      []string{"vuln"},
 		Cache:             c,
+		KubernetesClient:  client,
 	}, nil
 }
 
@@ -87,45 +94,118 @@ func (s Scanner) GetImagesThatNeedScan() (imagesToBeScanned []string, imagesDeni
 	logger := logging.Logger()
 
 	var toBeScanned []string
-	var deniedOnCache []string
-	var allowedOnCache []string
+	var deniedImages []string
+	var allowedImages []string
 	var digest string
 	var image *Image
 
-	shallRetrieveImageFromCache := true
+	shallAttemptToRetrieveImage := true
 	var err error
 
 	for _, imagePullString := range s.ImagesPullStrings {
 		image, err = NewImageFromPullString(imagePullString)
 		if err != nil {
-			shallRetrieveImageFromCache = false
+			shallAttemptToRetrieveImage = false
 			logger.Warn().Msgf("error parsing image manifest into repository and tag, will not attemp to fetch image on cache: %v", err)
 		} else {
 			digest, err = image.GetDigest()
 			image.Digest = digest // TODO - Improve this
 			if err != nil {
 				logger.Warn().Msgf("error getting image manifest, will not attemp to fetch image on cache: %v", err)
+				shallAttemptToRetrieveImage = false
 			}
-			shallRetrieveImageFromCache = false
 		}
-		if shallRetrieveImageFromCache {
-			logger.Debug().Msgf("attempting to get image from cache %v with digest %v", image.PullString, image.Digest)
-			allowOrDeny, ok := s.Cache.Get(digest)
-			if !ok {
+		if shallAttemptToRetrieveImage {
+			logger.Debug().Msgf("attempting to get image from data store %v with digest %v", image.PullString, image.Digest)
+			imageFromDataStore, err := s.GetImageFromDataStore(*image)
+			if err != nil {
 				toBeScanned = append(imagesToBeScanned, image.PullString)
-			} else if allowOrDeny == StrAllowed {
-				allowedOnCache = append(imagesAllowedOnCache, image.PullString)
-				logger.Debug().Msgf("image %v with digest %v found on cache with status %v, skipping scan", image.PullString, image.Digest, StrAllowed)
-			} else if allowOrDeny == StrDenied {
-				deniedOnCache = append(imagesDeniedOnCache, image.PullString)
-				logger.Debug().Msgf("image %v with digest %v found on cache with status %v, denying scan", image.PullString, image.Digest, StrDenied)
+			} else if imageFromDataStore.Allowed {
+				allowedImages = append(imagesAllowedOnCache, image.PullString)
+			} else if !imageFromDataStore.Allowed {
+				deniedImages = append(imagesDeniedOnCache, image.PullString)
 			}
 		} else {
 			toBeScanned = append(imagesToBeScanned, image.PullString)
 		}
 	}
 
-	return toBeScanned, deniedOnCache, allowedOnCache
+	return toBeScanned, deniedImages, allowedImages
+}
+
+// TODO - need to verify pointer stuff here
+func (s Scanner) GetImageFromDataStore(image Image) (*Image, error) {
+	logger := logging.Logger()
+
+	allowOrDeny, ok := s.Cache.Get(image.Digest)
+	if ok {
+		logger.Debug().Msgf("image %v with digest %v found on cache with allowed %v", image.PullString, image.Digest, allowOrDeny)
+		if allowOrDeny == StrAllowed {
+			image.Allowed = true
+			return &image, nil
+		}
+		image.Allowed = false
+		return &image, nil
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "trivyac.io",
+		Version:  "v1",
+		Resource: kubernetes.ResourcePlural,
+	}
+
+	formmatedDigest := strings.ReplaceAll(image.Digest, ":", "-")
+
+	resource, err := s.KubernetesClient.Dynamic.Resource(gvr).Namespace(config.Cfg.Namespace).Get(context.TODO(), formmatedDigest, metav1.GetOptions{})
+	if err != nil {
+		return &image, err
+	}
+	logger.Debug().Msgf("image %v with digest %v found on kubernetes store with status %v", image.PullString, image.Digest, resource.Object["spec"].(map[string]interface{})["allowed"].(bool))
+
+	image.Allowed = resource.Object["spec"].(map[string]interface{})["allowed"].(bool)
+	image.FormmatedDigest = formmatedDigest
+	return &image, nil
+}
+
+func (s Scanner) SetImageOnDataStore(id string, status string, duration time.Duration) error {
+	var allowed bool
+	formattedDigest := strings.ReplaceAll(id, ":", "-")
+
+	if status == StrAllowed {
+		allowed = true
+	}
+
+	err := s.Cache.Set(id, allowed, duration)
+	if err != nil {
+		return fmt.Errorf("failed to set resource on cache: %v", err)
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "trivyac.io",
+		Version:  "v1",
+		Resource: kubernetes.ResourcePlural,
+	}
+
+	image := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "trivyac.io/v1",
+			"kind":       "ScannedImage",
+			"metadata": map[string]interface{}{
+				"name": formattedDigest,
+			},
+			"spec": map[string]interface{}{
+				"imageDigest": id,
+				"allowed":     allowed,
+			},
+		},
+	}
+
+	_, err = kubernetes.GetClient().Dynamic.Resource(gvr).Namespace(config.Cfg.Namespace).Create(context.TODO(), image, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to create resource on kubernetes data store: %v", err)
+	}
+
+	return nil
 }
 
 func getResultFromFileSystem(path string) (*ScanResult, error) {
