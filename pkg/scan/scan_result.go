@@ -2,6 +2,8 @@ package scan
 
 import (
 	"time"
+
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
 )
 
 type ScanResult struct {
@@ -10,7 +12,7 @@ type ScanResult struct {
 	ArtifactType    string           `json:"ArtifactType"`
 	Metadata        Metadata         `json:"Metadata"`
 	DetailedResults []DetailedResult `json:"Results"`
-	Image           Image
+	Image           image.Image
 }
 
 type Metadata struct {

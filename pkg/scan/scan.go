@@ -12,6 +12,7 @@ import (
 
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 	v1 "k8s.io/api/admission/v1"
@@ -23,12 +24,10 @@ import (
 )
 
 type Scanner struct {
-	ImagesPullStrings []string
-	DryRun            bool
-	OutputDir         string
-	ScannerModes      []string
-	Cache             cache.Cache
-	KubernetesClient  kubernetes.Client
+	OutputDir        string
+	ScannerModes     []string
+	Cache            cache.Cache
+	KubernetesClient kubernetes.Client
 }
 
 const (
@@ -37,44 +36,37 @@ const (
 	filePermission = 0755
 )
 
-func NewFromAdmissionReview(ar v1.AdmissionReview, c cache.Cache, client kubernetes.Client) (Scanner, error) {
+func NewScanner(c cache.Cache, client kubernetes.Client) (*Scanner, error) {
 
-	images, err := getImagesPullStringFromAdmissionReview(ar)
-	if err != nil {
-		return Scanner{}, fmt.Errorf("error extracing images")
+	err := os.Mkdir(config.Cfg.OutputDir, filePermission)
+	if err != nil && !errors.Is(err, os.ErrExist) {
+		return nil, fmt.Errorf("fail to create output directory for scans: %v", err)
 	}
 
-	return Scanner{
-		ImagesPullStrings: images,
-		DryRun:            *ar.Request.DryRun,
-		OutputDir:         config.Cfg.OutputDir,
-		ScannerModes:      []string{"vuln"},
-		Cache:             c,
-		KubernetesClient:  client,
+	return &Scanner{
+		OutputDir:        config.Cfg.OutputDir,
+		ScannerModes:     []string{"vuln"},
+		Cache:            c,
+		KubernetesClient: client,
 	}, nil
 }
 
-func (s Scanner) Scan(imagesToBeScanned []Image) ([]ScanResult, error) {
+func (s Scanner) Scan(imagesToBeScanned []image.Image) ([]ScanResult, error) {
 	logger := logging.Logger()
 
 	var results []ScanResult
 
-	err := os.Mkdir(s.OutputDir, filePermission)
-	if err != nil && !errors.Is(err, os.ErrExist) {
-		return nil, err
-	}
-
-	for _, image := range imagesToBeScanned {
+	for _, imageToBeScanned := range imagesToBeScanned {
 		outputFilePath := fmt.Sprintf("%s/%s-%s.json", s.OutputDir, "scan", time.Now().Format("02:15:04"))
-		command := fmt.Sprintf("%s image %s -o %s --scanners %s --format json", config.Cfg.TrivyPath, image.PullString, outputFilePath, strings.Join(s.ScannerModes, ","))
-		logger.Debug().Msgf("Running command: %s for image %s", command, image.PullString)
+		command := fmt.Sprintf("%s imageToBeScanned %s -o %s --scanners %s --format json", config.Cfg.TrivyPath, imageToBeScanned.PullString, outputFilePath, strings.Join(s.ScannerModes, ","))
+		logger.Debug().Msgf("Running command: %s for imageToBeScanned %s", command, imageToBeScanned.PullString)
 
 		cmd := exec.Command("sh", "-c", command)
 		var out, stderr strings.Builder
 		cmd.Stdout = &out
 		cmd.Stderr = &stderr
 
-		err = cmd.Run()
+		err := cmd.Run()
 		if err != nil {
 			return nil, fmt.Errorf("error executing trivy scan: %v. Stdout: %v, Stderr: %v", err, out.String(), stderr.String())
 		}
@@ -84,7 +76,7 @@ func (s Scanner) Scan(imagesToBeScanned []Image) ([]ScanResult, error) {
 			return nil, err2
 		}
 
-		result.Image = image
+		result.Image = imageToBeScanned
 
 		results = append(results, *result)
 	}
@@ -94,48 +86,44 @@ func (s Scanner) Scan(imagesToBeScanned []Image) ([]ScanResult, error) {
 
 // that method should return images in the future
 // note below comments
-func (s Scanner) GetImagesThatNeedScan() (imagesToBeScanned []Image, imagesDeniedOnCache []Image, imagesAllowedOnCache []Image) {
+func (s Scanner) GetImagesThatNeedScan(images []image.Image) (imagesToBeScanned []image.Image, imagesDeniedOnCache []image.Image, imagesAllowedOnCache []image.Image) {
 	logger := logging.Logger()
 
-	var toBeScanned []Image
-	var deniedImages []Image
-	var allowedImages []Image
-	var image *Image
+	var toBeScanned []image.Image
+	var deniedImages []image.Image
+	var allowedImages []image.Image
 	var err error
 	shallAttemptToRetrieveImage := true
 
-	for _, imagePullString := range s.ImagesPullStrings {
-		// we need to refactor this to make sure we always get images,
-		// images should be the main struct in the long term that will support all actions
-		image, err = NewImageFromPullString(imagePullString)
+	for _, image := range images {
 		if image.Digest == "" && err != nil {
 			shallAttemptToRetrieveImage = false
 			logger.Warn().Msgf("image digest is empty, will not attemp to retrieve image from data store: %v", err)
 		}
 		if shallAttemptToRetrieveImage {
 			logger.Debug().Msgf("attempting to get image from data store %v with digest %v", image.PullString, image.Digest)
-			imageFromDataStore, err := s.GetImageFromDataStore(*image)
+			imageFromDataStore, err := s.GetImageFromDataStore(image)
 			if err != nil {
-				toBeScanned = append(toBeScanned, *image)
+				toBeScanned = append(toBeScanned, image)
 			} else if imageFromDataStore.Allowed {
-				allowedImages = append(allowedImages, *image)
+				allowedImages = append(allowedImages, image)
 			} else if !imageFromDataStore.Allowed {
-				deniedImages = append(deniedImages, *image)
+				deniedImages = append(deniedImages, image)
 			}
 		} else {
-			toBeScanned = append(toBeScanned, *image)
+			toBeScanned = append(toBeScanned, image)
 		}
 	}
 
 	return toBeScanned, deniedImages, allowedImages
 }
 
-// TODO - need to verify pointer stuff here
-func (s Scanner) GetImageFromDataStore(image Image) (*Image, error) {
+// need to implement both s.Cache.GetImage and s.KubernetesClient.GetImage
+func (s Scanner) GetImageFromDataStore(image image.Image) (*image.Image, error) {
 	logger := logging.Logger()
 
-	allowOrDeny, ok := s.Cache.Get(image.Digest)
-	if ok {
+	allowOrDeny, presentOnCache := s.Cache.Get(image.FormmatedDigest)
+	if presentOnCache {
 		logger.Debug().Msgf("image %v with digest %v found on cache with allowed %v", image.PullString, image.Digest, allowOrDeny)
 		if allowOrDeny == StrAllowed {
 			image.Allowed = true
@@ -164,8 +152,8 @@ func (s Scanner) GetImageFromDataStore(image Image) (*Image, error) {
 	return &image, nil
 }
 
-// set image needs to receive image
-func (s Scanner) SetImageOnDataStore(image Image, duration time.Duration) error {
+// need to implement both s.Cache.SetImage and s.KubernetesClient.SetImage
+func (s Scanner) SetImageOnDataStore(image image.Image, duration time.Duration) error {
 
 	err := s.Cache.Set(image.FormmatedDigest, image.Allowed, duration)
 	if err != nil {

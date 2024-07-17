@@ -1,4 +1,4 @@
-package scan
+package image
 
 import (
 	"encoding/json"
@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
+	v1 "k8s.io/api/admission/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 )
 
 type Image struct {
@@ -19,6 +22,7 @@ type Image struct {
 	FormmatedDigest string
 	Registry        string
 	Allowed         bool
+	PullSecrets     []string
 }
 
 type ManifestConfig struct {
@@ -225,4 +229,55 @@ func getDockerHubToken(username string, password string, repository string) (str
 	}
 
 	return authResp.Token, nil
+}
+
+func NewImagesFromAdmissionReview(ar v1.AdmissionReview) ([]Image, error) {
+	var images []Image
+
+	rawObject := ar.Request.Object.Raw
+	groupVersionKind := ar.Request.Kind
+
+	switch groupVersionKind.Kind {
+	case "Pod":
+		var pod corev1.Pod
+		if err := json.Unmarshal(rawObject, &pod); err != nil {
+			return nil, err
+		}
+		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&pod.Spec)...)
+	case "Deployment":
+		var deploy appsv1.Deployment
+		if err := json.Unmarshal(rawObject, &deploy); err != nil {
+			return nil, err
+		}
+		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&deploy.Spec.Template.Spec)...)
+	case "DaemonSet":
+		var ds appsv1.DaemonSet
+		if err := json.Unmarshal(rawObject, &ds); err != nil {
+			return nil, err
+		}
+		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&ds.Spec.Template.Spec)...)
+	default:
+		return nil, fmt.Errorf("unsupported resource kind: %s", groupVersionKind.Kind)
+	}
+
+	return images, nil
+}
+
+func extractContainerImagesAndPullSecretsFromPodSpec(podSpec *corev1.PodSpec) []Image {
+	var images []Image
+	for _, container := range podSpec.Containers {
+		image, err := NewImageFromPullString(container.Image)
+		if err != nil {
+			return nil
+		}
+		if podSpec.ImagePullSecrets != nil {
+			pullSecrets := make([]string, len(podSpec.ImagePullSecrets))
+			for _, pullSecret := range podSpec.ImagePullSecrets {
+				pullSecrets = append(pullSecrets, pullSecret.Name)
+			}
+			image.PullSecrets = pullSecrets
+		}
+		images = append(images, *image)
+	}
+	return images
 }
