@@ -51,9 +51,10 @@ func InitConfig() {
 	}
 	viper.SetConfigName(configFileName)
 	viper.AddConfigPath(configFilePath)
-	viper.AutomaticEnv()
 	viper.SetConfigType("yaml")
+	// EnvKeyReplacer must be explicitly called before AutomaticEnv
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
 
 	setDefaultValues()
 	if err := viper.ReadInConfig(); err != nil {
@@ -63,7 +64,6 @@ func InitConfig() {
 	if err := viper.Unmarshal(&Cfg); err != nil {
 		log.Fatalf("Unable to decode into struct, %v", err)
 	}
-
 	viper.OnConfigChange(func(e fsnotify.Event) {
 		log.Println("Config file changed:", e.Name)
 		if err := viper.Unmarshal(&Cfg); err != nil {
