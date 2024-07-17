@@ -48,7 +48,7 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	logger.Printf("Received request: %s", marshal)
+	logger.Debug().Msgf("Received request: %s", marshal)
 
 	scanner, err := scan.NewFromAdmissionReview(admissionReview, h.Cache, h.KubernetesClient)
 	if err != nil {
@@ -56,7 +56,6 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	imagesToBeScanned, imagesDeniedOnCache, imagesAllowedOnCache := scanner.GetImagesThatNeedScan()
-
 	var containsVulnerability bool
 	var admissionResponse *admissionv1.AdmissionResponse
 	var scanResults []scan.ScanResult
