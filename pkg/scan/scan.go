@@ -15,9 +15,6 @@ import (
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
-	v1 "k8s.io/api/admission/v1"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -32,7 +29,6 @@ type Scanner struct {
 
 const (
 	StrAllowed     = "allowed"
-	StrDenied      = "denied"
 	filePermission = 0755
 )
 
@@ -58,7 +54,7 @@ func (s Scanner) Scan(imagesToBeScanned []image.Image) ([]ScanResult, error) {
 
 	for _, imageToBeScanned := range imagesToBeScanned {
 		outputFilePath := fmt.Sprintf("%s/%s-%s.json", s.OutputDir, "scan", time.Now().Format("02:15:04"))
-		command := fmt.Sprintf("%s imageToBeScanned %s -o %s --scanners %s --format json", config.Cfg.TrivyPath, imageToBeScanned.PullString, outputFilePath, strings.Join(s.ScannerModes, ","))
+		command := fmt.Sprintf("%s image %s -o %s --scanners %s --format json", config.Cfg.TrivyPath, imageToBeScanned.PullString, outputFilePath, strings.Join(s.ScannerModes, ","))
 		logger.Debug().Msgf("Running command: %s for imageToBeScanned %s", command, imageToBeScanned.PullString)
 
 		cmd := exec.Command("sh", "-c", command)
@@ -84,8 +80,6 @@ func (s Scanner) Scan(imagesToBeScanned []image.Image) ([]ScanResult, error) {
 	return results, nil
 }
 
-// that method should return images in the future
-// note below comments
 func (s Scanner) GetImagesThatNeedScan(images []image.Image) (imagesToBeScanned []image.Image, imagesDeniedOnCache []image.Image, imagesAllowedOnCache []image.Image) {
 	logger := logging.Logger()
 
@@ -125,7 +119,7 @@ func (s Scanner) GetImageFromDataStore(image image.Image) (*image.Image, error) 
 	allowOrDeny, presentOnCache := s.Cache.Get(image.FormmatedDigest)
 	if presentOnCache {
 		logger.Debug().Msgf("image %v with digest %v found on cache with allowed %v", image.PullString, image.Digest, allowOrDeny)
-		if allowOrDeny == StrAllowed {
+		if allowOrDeny == "true" {
 			image.Allowed = true
 			return &image, nil
 		}
@@ -202,45 +196,4 @@ func getResultFromFileSystem(path string) (*ScanResult, error) {
 	}
 
 	return &result, nil
-}
-
-func getImagesPullStringFromAdmissionReview(ar v1.AdmissionReview) ([]string, error) {
-
-	var images []string
-
-	rawObject := ar.Request.Object.Raw
-	groupVersionKind := ar.Request.Kind
-
-	switch groupVersionKind.Kind {
-	case "Pod":
-		var pod corev1.Pod
-		if err := json.Unmarshal(rawObject, &pod); err != nil {
-			return nil, err
-		}
-		images = append(images, extractContainerImagesFromPodSpec(&pod.Spec)...)
-	case "Deployment":
-		var deploy appsv1.Deployment
-		if err := json.Unmarshal(rawObject, &deploy); err != nil {
-			return nil, err
-		}
-		images = append(images, extractContainerImagesFromPodSpec(&deploy.Spec.Template.Spec)...)
-	case "DaemonSet":
-		var ds appsv1.DaemonSet
-		if err := json.Unmarshal(rawObject, &ds); err != nil {
-			return nil, err
-		}
-		images = append(images, extractContainerImagesFromPodSpec(&ds.Spec.Template.Spec)...)
-	default:
-		return nil, fmt.Errorf("unsupported resource kind: %s", groupVersionKind.Kind)
-	}
-
-	return images, nil
-}
-
-func extractContainerImagesFromPodSpec(podSpec *corev1.PodSpec) []string {
-	var images []string
-	for _, container := range podSpec.Containers {
-		images = append(images, container.Image)
-	}
-	return images
 }

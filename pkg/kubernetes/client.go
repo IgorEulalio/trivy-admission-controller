@@ -1,10 +1,14 @@
 package kubernetes
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"sync"
 
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -21,6 +25,14 @@ type Client struct {
 	*k8s.Clientset
 	RestConfig *rest.Config
 	Dynamic    dynamic.Interface
+}
+
+func (c Client) GetSecret(namespace, secretName string) (*v1.Secret, error) {
+	secret, err := c.CoreV1().Secrets(namespace).Get(context.TODO(), secretName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get secret %s in namespace %s: %v", secretName, namespace, err)
+	}
+	return secret, nil
 }
 
 var (
