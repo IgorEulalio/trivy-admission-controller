@@ -7,9 +7,10 @@ Memory
 .idea/**
 tmp
 DO-NOT-COMMIT-local-setup.yaml
-deployment/
+chart/
+certs/
 .env
 scan-*
 *.json
 docker.sh
-
+trivy-admission-controller
