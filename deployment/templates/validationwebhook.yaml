@@ -1,0 +1,39 @@
+{{- $certString := include "trivy-admission-controller.tlsGenCerts" . -}}
+{{- $certList := split "$" $certString }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "trivy-admission-controller.webhookName" . }}
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-install
+    "helm.sh/hook-weight": "5"
+webhooks:
+  - name: {{ include "trivy-admission-controller.webhookName" . }}
+    rules:
+      - apiGroups:   [""]
+        apiVersions: ["v1"]
+        operations:  ["CREATE"]
+        resources:   ["pods"]
+        scope:       "Namespaced"
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "trivy-admission-controller.fullname" . }}
+        path: /validate
+        port: {{ .Values.service.port }}
+      caBundle: {{ index $certList._2 }}
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    timeoutSeconds: 15
+    failurePolicy: {{ include "trivy-admission-controller.failurePolicy" . }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "trivy-admission-controller.tlsCertsSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ include "trivy-admission-controller.tlsCertFileName" . }}: {{ $certList._0 }}
+  {{ include "trivy-admission-controller.tlsCertPrivateKeyFileName" . }}: {{ $certList._1 }}
+  {{ include "trivy-admission-controller.caCertFileName" .}}: {{ $certList._2 }}

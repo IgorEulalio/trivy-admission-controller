@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "trivy-admission-controller.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trivy-admission-controller.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "trivy-admission-controller.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "trivy-admission-controller.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "trivy-admission-controller.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{ if .Values.command }}
+          command: {{ .Values.command }}
+          {{ end }}
+          env:
+          - name: PORT
+            value: "{{ .Values.service.port }}"
+          - name: TLS_CERT_FILE
+            value: {{ include "trivy-admission-controller.tlsMountPath" . }}/tls.crt
+          - name: TLS_KEY_FILE
+            value: {{ include "trivy-admission-controller.tlsMountPath" . }}/tls.key
+          - name: CONFIG_FILE_PATH
+            value: {{ include "trivy-admission-controller.configMountPath" . }}
+          - name: CONFIG_FILE_NAME
+            value: {{ include "trivy-admission-controller.configFileName" . }}
+          - name: NAMESPACE
+            value: {{ .Release.Namespace }}
+          {{- with .Values.env }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+{{/*          livenessProbe:*/}}
+{{/*            httpGet:*/}}
+{{/*              path: /*/}}
+{{/*              port: http*/}}
+{{/*          readinessProbe:*/}}
+{{/*            httpGet:*/}}
+{{/*              path: /*/}}
+{{/*              port: http*/}}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: {{ include "trivy-admission-controller.configMountPath" . }}
+            - name: tls-certs
+              mountPath: {{ include "trivy-admission-controller.tlsMountPath" . }}
+              readOnly: true
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: {{ include "trivy-admission-controller.tlsCertsSecretName" . }}
+        - name: config
+          configMap:
+              name: {{ include "trivy-admission-controller.configMapName" . }}
