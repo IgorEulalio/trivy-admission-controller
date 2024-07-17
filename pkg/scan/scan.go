@@ -39,7 +39,7 @@ const (
 
 func NewFromAdmissionReview(ar v1.AdmissionReview, c cache.Cache, client kubernetes.Client) (Scanner, error) {
 
-	images, err := getImagesFromAdmissionReview(ar)
+	images, err := getImagesPullStringFromAdmissionReview(ar)
 	if err != nil {
 		return Scanner{}, fmt.Errorf("error extracing images")
 	}
@@ -216,7 +216,7 @@ func getResultFromFileSystem(path string) (*ScanResult, error) {
 	return &result, nil
 }
 
-func getImagesFromAdmissionReview(ar v1.AdmissionReview) ([]string, error) {
+func getImagesPullStringFromAdmissionReview(ar v1.AdmissionReview) ([]string, error) {
 
 	var images []string
 
