@@ -4,7 +4,9 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"os"
 
 	"github.com/magefile/mage/mg"
@@ -12,148 +14,77 @@ import (
 )
 
 const (
-	repoURL     string = "github.com/igoreulalio/trivy-admission-controller"
-	projectName string = "trivy-admission-controller"
-	dockerRepo  string = "igoreulalio/trivy-admission-controller"
+	dockerRepo string = "igoreulalio"
+	imageName  string = "trivy-admission-controller"
 )
 
-type Lint mg.Namespace
-type Build mg.Namespace
-type Push mg.Namespace
-type Release mg.Namespace
-
-// lint:run runs linting
-func (Lint) Run() error {
-	if err := sh.RunV("golangci-lint", "--version"); err != nil {
-		return err
-	}
-	if err := sh.RunV("golangci-lint", "run", "--timeout", "3m"); err != nil {
-		return err
-	}
-	if err := sh.RunV("go", "mod", "tidy"); err != nil {
-		return err
-	}
-	return nil
-}
-
-// lint:fix fixes linting
-func (Lint) Fix() error {
-	if err := sh.RunV("golangci-lint", "run", "--fix"); err != nil {
-		return err
-	}
-	return nil
-}
-
-// test runs test
-func Test() error {
-	return sh.RunV("go", "test", "./...", "-race")
-}
-
-// run runs the app (with 'auto' as first argument, air is used to auto reload the app at each change)
-//func Run(autoreload string) error {
-//	if autoreload == "auto" {
-//		return sh.RunV("air", "server", "-c", "config.yaml", "-r", "rules.yaml")
-//	}
-//	return sh.RunV("go", "run", "./...", "server", "-c", "config.yaml", "-r", "rules.yaml")
-//}
-
-// build:local builds a binary
 func (Build) Local() error {
-	ldFlags := generateLDFlags()
+	fmt.Println("Building the Go application locally...")
 
-	fmt.Println(ldFlags)
-	return sh.RunV("go", "build", "-trimpath", "-ldflags", ldFlags, "-o", projectName, ".")
+	env := map[string]string{
+		"CGO_ENABLED": "0",
+		"GOOS":        "linux",
+		"GOARCH":      "amd64",
+	}
+
+	if err := sh.RunWithV(env, "go", "build", "-ldflags=-s -w -extldflags='-static'", "-a", "-installsuffix", "cgo", "-o", "trivy-admission-controller", "main.go"); err != nil {
+		return fmt.Errorf("failed to build the application: %w", err)
+	}
+
+	fmt.Println("Build completed successfully.")
+	return nil
 }
 
-// build:images builds images and not push
-func (Build) Images() error {
-	//exportLDFlags()
-	os.Setenv("KO_DOCKER_REPO", dockerRepo)
-	return sh.RunV("ko", "build", "--bare", "--sbom=none", "--tags", getVersion(), "--tags", getCommit(), "--tags", "latest",
-		repoURL)
-}
-
-// push:images pushes the images to dockerhub
+// Push pushes the images to DockerHub
 func (Push) Images() error {
-	mg.Deps(Build.Images)
-	os.Setenv("KO_DOCKER_REPO", dockerRepo)
+	mg.Deps(Build.Local)
 
-	return sh.RunV("ko", "build", "--bare", "--sbom=none", "--tags", getVersion(), "--tags", getCommit(), "--tags", "latest",
-		repoURL)
-}
+	fmt.Println("Building image...")
+	randomTag := generateRandomString(6)
+	devTag := fmt.Sprintf("dev-%s", randomTag)
 
-// release:snapshot creates a release with current commit
-func (Release) Snapshot() error {
-	exportLDFlags()
-	return sh.RunV("goreleaser", "release", "--clean", "--snapshot", "--skip-sbom", "--skip-publish")
-}
+	imageWithRepo := fmt.Sprintf("%s/%s:%s", dockerRepo, imageName, devTag)
+	os.Setenv("CGO_ENABLED", "0")
+	os.Setenv("GOOS", "linux")
+	os.Setenv("GOARCH", "amd64")
 
-// release:tag creates a release from latest tag
-func (Release) Tag() error {
-	mg.Deps(Test)
-
-	exportLDFlags()
-	return sh.RunV("goreleaser", "release", "--clean", "--skip-sign", "--skip-sbom")
-}
-
-// clean cleans temp folders
-func Clean() {
-	files := []string{projectName, "dist"}
-
-	for _, file := range files {
-		sh.Rm(file)
+	if err := sh.RunV("docker", "buildx", "create", "--use"); err != nil {
+		return err
 	}
+
+	if err := sh.RunV("docker", "buildx", "build", "--platform", "linux/amd64", "-t", imageWithRepo, "--push", "."); err != nil {
+		return err
+	}
+
+	fmt.Println("Image built: ", imageWithRepo)
+
+	return nil
 }
 
-// exportLDFlags export as env vars the flags for go build
-func exportLDFlags() {
-	os.Setenv("LDFLAGS", generateLDFlags())
-	fmt.Printf("export LDFLAGS=%s\n", os.Getenv("LDFLAGS"))
+// generateRandomString generates a random string of the specified length.
+func generateRandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	var seededRand = rand.Reader
+
+	b := make([]byte, length)
+	for i := range b {
+		num, _ := rand.Int(seededRand, big.NewInt(int64(len(charset))))
+		b[i] = charset[num.Int64()]
+	}
+	return string(b)
 }
 
-// getVersion gets a description of the commit, e.g. v0.30.1 (latest) or v0.30.1-32-gfe72ff73 (canary)
+// getVersion returns the current version of the application (stub implementation)
 func getVersion() string {
-	version, _ := sh.Output("git", "describe", "--tags", "--match=v*")
-	if version != "" {
-		return version
-	}
-
-	gitBranch, _ := sh.Output("git", "branch", "--show-current")
-
-	// repo without any tags in it
-	return gitBranch
+	return "v1.0.0" // replace with your actual version retrieval logic
 }
 
-// getCommit gets the hash of the current commit
+// getCommit returns the current commit hash (stub implementation)
 func getCommit() string {
-	commit, _ := sh.Output("git", "rev-parse", "--short", "HEAD")
-	return commit
+	return "DEV-" // replace with your actual commit retrieval logic
 }
 
-// getGitState gets the state of the git repository
-func getGitState() string {
-	_, err := sh.Output("git", "diff", "--quiet")
-	if err != nil {
-		return "dirty"
-	}
+// Build is a namespace for build-related tasks.
+type Push mg.Namespace
 
-	return "clean"
-}
-
-// getBuildDateTime gets the build date and time
-func getBuildDateTime() string {
-	result, _ := sh.Output("git", "log", "-1", "--pretty=%ct")
-	if result != "" {
-		sourceDateEpoch := fmt.Sprintf("@%s", result)
-		date, _ := sh.Output("date", "-u", "-d", sourceDateEpoch, "+%Y-%m-%dT%H:%M:%SZ")
-		return date
-	}
-
-	date, _ := sh.Output("date", "+%Y-%m-%dT%H:%M:%SZ")
-	return date
-}
-
-func generateLDFlags() string {
-	pkg := repoURL + "/configuration"
-	return fmt.Sprintf("-X %[1]s.GitVersion=%[2]s -X %[1]s.gitCommit=%[3]s -X %[1]s.gitTreeState=%[4]s -X %[1]s.buildDate=%[5]s", pkg, getVersion(), getCommit(), getGitState(), getBuildDateTime())
-}
+type Build mg.Namespace

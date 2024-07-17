@@ -7,7 +7,7 @@ import (
 
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/api"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
+	configuration "github.com/IgorEulalio/trivy-admission-controller/pkg/config"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 )
@@ -17,9 +17,10 @@ func Run() {
 	logging.InitLogger()
 	logger := logging.Logger()
 
-	config.InitConfig()
+	configuration.InitConfig()
+	config := configuration.Cfg
 
-	c, err := cache.NewCacheFromConfig(config.Cfg)
+	c, err := cache.NewCacheFromConfig(config)
 	if err != nil {
 		logger.Fatal().Msgf("Error creating cache: %v", err)
 	}
@@ -32,6 +33,6 @@ func Run() {
 	handler := api.NewHandler(c, kubernetes.GetClient())
 
 	http.HandleFunc("/validate", handler.Validate)
-	logger.Info().Msgf("Starting server on port %v", config.Cfg.Port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf("%s:%v", "127.0.0.1", config.Cfg.Port), nil))
+	logger.Info().Msgf("Starting server on port %v", config.Port)
+	log.Fatal(http.ListenAndServeTLS(fmt.Sprintf("%s:%v", "0.0.0.0", config.Port), config.CertFile, config.KeyFile, nil))
 }

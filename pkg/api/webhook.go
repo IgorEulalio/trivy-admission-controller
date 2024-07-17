@@ -44,6 +44,11 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	marshal, err := json.Marshal(admissionReview)
+	if err != nil {
+		return
+	}
+	logger.Printf("Received request: %s", marshal)
 
 	scanner, err := scan.NewFromAdmissionReview(admissionReview, h.Cache, h.KubernetesClient)
 	if err != nil {

@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
@@ -31,6 +32,9 @@ type Config struct {
 	OutputDir   string      `mapstructure:"output_dir"`
 	KubeConfig  string      `mapstructure:"kube_config"`
 	Namespace   string      `mapstructure:"namespace"`
+	CertFile    string      `mapstructure:"tls_cert_file"`
+	KeyFile     string      `mapstructure:"tls_key_file"`
+	TrivyPath   string      `mapstructure:"trivy_path"`
 }
 
 var Cfg Config
@@ -49,6 +53,7 @@ func InitConfig() {
 	viper.AddConfigPath(configFilePath)
 	viper.AutomaticEnv()
 	viper.SetConfigType("yaml")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	setDefaultValues()
 	if err := viper.ReadInConfig(); err != nil {
@@ -74,4 +79,6 @@ func setDefaultValues() {
 	viper.SetDefault("cache.local.expiration", 200)
 	viper.SetDefault("cache.local.max_size", 5000)
 	viper.SetDefault("output_dir", "./")
+	viper.SetDefault("namespace", "default")
+	viper.SetDefault("trivy_path", "/usr/local/bin/trivy")
 }

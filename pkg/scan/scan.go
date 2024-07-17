@@ -66,7 +66,7 @@ func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
 
 	for _, image := range imagesToBeScanned {
 		outputFilePath := fmt.Sprintf("%s/%s-%s.json", s.OutputDir, "scan", time.Now().Format("02:15:04"))
-		command := fmt.Sprintf("/opt/homebrew/bin/trivy image %s -o %s --scanners %s --format json", image, outputFilePath, strings.Join(s.ScannerModes, ","))
+		command := fmt.Sprintf("%s image %s -o %s --scanners %s --format json", config.Cfg.TrivyPath, image, outputFilePath, strings.Join(s.ScannerModes, ","))
 		logger.Debug().Msgf("Running command: %s for image %s", command, image)
 
 		cmd := exec.Command("sh", "-c", command)
@@ -90,6 +90,8 @@ func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
 	return results, nil
 }
 
+// that method should return images in the future
+// note below comments
 func (s Scanner) GetImagesThatNeedScan() (imagesToBeScanned []string, imagesDeniedOnCache []string, imagesAllowedOnCache []string) {
 	logger := logging.Logger()
 
@@ -103,11 +105,14 @@ func (s Scanner) GetImagesThatNeedScan() (imagesToBeScanned []string, imagesDeni
 	var err error
 
 	for _, imagePullString := range s.ImagesPullStrings {
+		// we need to refactor this to make sure we allways get images,
+		// images should be the main struct in the long term that will support all actions
 		image, err = NewImageFromPullString(imagePullString)
 		if err != nil {
 			shallAttemptToRetrieveImage = false
 			logger.Warn().Msgf("error parsing image manifest into repository and tag, will not attemp to fetch image on cache: %v", err)
 		} else {
+			// image.GetDigest should depend on type, and we'll need to be able to better create images
 			digest, err = image.GetDigest()
 			image.Digest = digest // TODO - Improve this
 			if err != nil {
@@ -119,14 +124,14 @@ func (s Scanner) GetImagesThatNeedScan() (imagesToBeScanned []string, imagesDeni
 			logger.Debug().Msgf("attempting to get image from data store %v with digest %v", image.PullString, image.Digest)
 			imageFromDataStore, err := s.GetImageFromDataStore(*image)
 			if err != nil {
-				toBeScanned = append(imagesToBeScanned, image.PullString)
+				toBeScanned = append(imagesToBeScanned, imagePullString)
 			} else if imageFromDataStore.Allowed {
-				allowedImages = append(imagesAllowedOnCache, image.PullString)
+				allowedImages = append(imagesAllowedOnCache, imagePullString)
 			} else if !imageFromDataStore.Allowed {
-				deniedImages = append(imagesDeniedOnCache, image.PullString)
+				deniedImages = append(imagesDeniedOnCache, imagePullString)
 			}
 		} else {
-			toBeScanned = append(imagesToBeScanned, image.PullString)
+			toBeScanned = append(imagesToBeScanned, imagePullString)
 		}
 	}
 

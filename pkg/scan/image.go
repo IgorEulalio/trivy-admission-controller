@@ -17,6 +17,7 @@ type Image struct {
 	PullString      string
 	Digest          string
 	FormmatedDigest string
+	Registry        string
 	Allowed         bool
 }
 
@@ -63,11 +64,33 @@ type AuthResponse struct {
 }
 
 func NewImageFromPullString(pullString string) (*Image, error) {
-	repository, tag, found := strings.Cut(pullString, ":")
+	var registry, repository, tag string
+
+	repositoryWithRegistry, tag, found := strings.Cut(pullString, ":")
 	if !found {
-		return nil, fmt.Errorf("can't parse pullstring, : identifier not found")
+		tag = "latest"
 	}
+
+	parts := strings.SplitN(repositoryWithRegistry, "/", 2)
+
+	if len(parts) == 1 {
+		// Only image name is provided.
+		registry = "docker.io"
+		repository = "library/" + parts[0]
+	} else if len(parts) == 2 {
+		// Check if the first part contains a "." or ":" which indicates it's a registry.
+		if strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":") {
+			registry = parts[0]
+			repository = parts[1]
+		} else {
+			// Default registry
+			registry = "docker.io"
+			repository = repositoryWithRegistry
+		}
+	}
+
 	return &Image{
+		Registry:   registry,
 		Repository: repository,
 		Tag:        tag,
 		PullString: pullString,
