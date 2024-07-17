@@ -27,7 +27,7 @@ func (Build) Local() error {
 		"GOARCH":      "amd64",
 	}
 
-	if err := sh.RunWithV(env, "go", "build", "-ldflags=-s -w -extldflags='-static'", "-a", "-installsuffix", "cgo", "-o", "trivy-admission-controller", "main.go"); err != nil {
+	if err := sh.RunWithV(env, "go", "build", "-tags=viper_bind_struct", "-ldflags=-s -w -extldflags='-static'", "-a", "-installsuffix", "cgo", "-o", "trivy-admission-controller", "main.go"); err != nil {
 		return fmt.Errorf("failed to build the application: %w", err)
 	}
 
