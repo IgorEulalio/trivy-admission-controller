@@ -10,6 +10,7 @@ type ScanResult struct {
 	ArtifactType    string           `json:"ArtifactType"`
 	Metadata        Metadata         `json:"Metadata"`
 	DetailedResults []DetailedResult `json:"Results"`
+	Image           Image
 }
 
 type Metadata struct {

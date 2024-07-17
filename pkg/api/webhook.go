@@ -62,17 +62,25 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 	var scanResults []scan.ScanResult
 
 	if len(imagesToBeScanned) == 0 && len(imagesDeniedOnCache) == 0 {
+		imagePullStrings := make([]string, len(imagesAllowedOnCache))
+		for i, img := range imagesAllowedOnCache {
+			imagePullStrings[i] = img.PullString
+		}
 		admissionResponse = &admissionv1.AdmissionResponse{
 			Allowed: true,
 			Result: &metav1.Status{
-				Message: fmt.Sprintf("image scan result present on data store for images: %v, allowing.", strings.Join(imagesAllowedOnCache, ", ")),
+				Message: fmt.Sprintf("image scan result present on data store for images: %v, allowing.", strings.Join(imagePullStrings, ", ")),
 			},
 		}
 	} else if len(imagesDeniedOnCache) > 0 {
+		imagePullStrings := make([]string, len(imagesDeniedOnCache))
+		for i, img := range imagesDeniedOnCache {
+			imagePullStrings[i] = img.PullString
+		}
 		admissionResponse = &admissionv1.AdmissionResponse{
 			Allowed: false,
 			Result: &metav1.Status{
-				Message: fmt.Sprintf("image scan result present on data store for images: %v, denying.", strings.Join(imagesDeniedOnCache, ", ")),
+				Message: fmt.Sprintf("image scan result present on data store for images: %v, denying.", strings.Join(imagePullStrings, ", ")),
 			},
 		}
 	} else {
@@ -93,12 +101,13 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 			admissionResponse = &admissionv1.AdmissionResponse{
 				Allowed: false,
 				Result: &metav1.Status{
-					Message: fmt.Sprintf("Image %s with digest %s contains vulnerabilities", result.ArtifactName, result.Metadata.ImageID),
+					Message: fmt.Sprintf("Image %s with digest %s contains vulnerabilities", result.Image.PullString, result.Image.Digest),
 				},
 			}
-
+			result.Image.Allowed = false
 			// ImageID from trivy scan result matches config.digest from docker hub response
-			err := scanner.SetImageOnDataStore(result.Metadata.ImageID, scan.StrDenied, result.ArtifactName, 1*time.Hour)
+			//err := scanner.SetImageOnDataStore(result.Metadata.ImageID, scan.StrDenied, result.ArtifactName, 1*time.Hour)
+			err := scanner.SetImageOnDataStore(result.Image, 1*time.Hour)
 			if err != nil {
 				logger.Warn().Msgf("Error setting cache: %v", err)
 			}
@@ -106,11 +115,12 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 			admissionResponse = &admissionv1.AdmissionResponse{
 				Allowed: true,
 				Result: &metav1.Status{
-					Message: fmt.Sprintf("Image %s with digest %s does not contain vulnerabilities", result.ArtifactName, result.Metadata.ImageID),
+					Message: fmt.Sprintf("Image %s with digest %s does not contain vulnerabilities", result.Image.PullString, result.Image.Digest),
 				},
 			}
+			result.Image.Allowed = true
 			// ImageID from trivy scan result matches config.digest from docker hub response
-			err := scanner.SetImageOnDataStore(result.Metadata.ImageID, scan.StrAllowed, result.ArtifactName, 1*time.Hour)
+			err := scanner.SetImageOnDataStore(result.Image, 1*time.Hour)
 			if err != nil {
 				logger.Warn().Msgf("Error inputing image into data store: %v", err)
 			}

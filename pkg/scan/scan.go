@@ -54,7 +54,7 @@ func NewFromAdmissionReview(ar v1.AdmissionReview, c cache.Cache, client kuberne
 	}, nil
 }
 
-func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
+func (s Scanner) Scan(imagesToBeScanned []Image) ([]ScanResult, error) {
 	logger := logging.Logger()
 
 	var results []ScanResult
@@ -66,8 +66,8 @@ func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
 
 	for _, image := range imagesToBeScanned {
 		outputFilePath := fmt.Sprintf("%s/%s-%s.json", s.OutputDir, "scan", time.Now().Format("02:15:04"))
-		command := fmt.Sprintf("%s image %s -o %s --scanners %s --format json", config.Cfg.TrivyPath, image, outputFilePath, strings.Join(s.ScannerModes, ","))
-		logger.Debug().Msgf("Running command: %s for image %s", command, image)
+		command := fmt.Sprintf("%s image %s -o %s --scanners %s --format json", config.Cfg.TrivyPath, image.PullString, outputFilePath, strings.Join(s.ScannerModes, ","))
+		logger.Debug().Msgf("Running command: %s for image %s", command, image.PullString)
 
 		cmd := exec.Command("sh", "-c", command)
 		var out, stderr strings.Builder
@@ -84,6 +84,8 @@ func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
 			return nil, err2
 		}
 
+		result.Image = image
+
 		results = append(results, *result)
 	}
 
@@ -92,46 +94,36 @@ func (s Scanner) Scan(imagesToBeScanned []string) ([]ScanResult, error) {
 
 // that method should return images in the future
 // note below comments
-func (s Scanner) GetImagesThatNeedScan() (imagesToBeScanned []string, imagesDeniedOnCache []string, imagesAllowedOnCache []string) {
+func (s Scanner) GetImagesThatNeedScan() (imagesToBeScanned []Image, imagesDeniedOnCache []Image, imagesAllowedOnCache []Image) {
 	logger := logging.Logger()
 
-	var toBeScanned []string
-	var deniedImages []string
-	var allowedImages []string
-	var digest string
+	var toBeScanned []Image
+	var deniedImages []Image
+	var allowedImages []Image
 	var image *Image
-
-	shallAttemptToRetrieveImage := true
 	var err error
+	shallAttemptToRetrieveImage := true
 
 	for _, imagePullString := range s.ImagesPullStrings {
-		// we need to refactor this to make sure we allways get images,
+		// we need to refactor this to make sure we always get images,
 		// images should be the main struct in the long term that will support all actions
 		image, err = NewImageFromPullString(imagePullString)
-		if err != nil {
+		if image.Digest == "" && err != nil {
 			shallAttemptToRetrieveImage = false
-			logger.Warn().Msgf("error parsing image manifest into repository and tag, will not attemp to fetch image on cache: %v", err)
-		} else {
-			// image.GetDigest should depend on type, and we'll need to be able to better create images
-			digest, err = image.GetDigest()
-			image.Digest = digest // TODO - Improve this
-			if err != nil {
-				logger.Warn().Msgf("error getting image manifest, will not attemp to fetch image on cache: %v", err)
-				shallAttemptToRetrieveImage = false
-			}
+			logger.Warn().Msgf("image digest is empty, will not attemp to retrieve image from data store: %v", err)
 		}
 		if shallAttemptToRetrieveImage {
 			logger.Debug().Msgf("attempting to get image from data store %v with digest %v", image.PullString, image.Digest)
 			imageFromDataStore, err := s.GetImageFromDataStore(*image)
 			if err != nil {
-				toBeScanned = append(imagesToBeScanned, imagePullString)
+				toBeScanned = append(toBeScanned, *image)
 			} else if imageFromDataStore.Allowed {
-				allowedImages = append(imagesAllowedOnCache, imagePullString)
+				allowedImages = append(allowedImages, *image)
 			} else if !imageFromDataStore.Allowed {
-				deniedImages = append(imagesDeniedOnCache, imagePullString)
+				deniedImages = append(deniedImages, *image)
 			}
 		} else {
-			toBeScanned = append(imagesToBeScanned, imagePullString)
+			toBeScanned = append(toBeScanned, *image)
 		}
 	}
 
@@ -173,15 +165,9 @@ func (s Scanner) GetImageFromDataStore(image Image) (*Image, error) {
 }
 
 // set image needs to receive image
-func (s Scanner) SetImageOnDataStore(id string, status string, pullString string, duration time.Duration) error {
-	var allowed bool
-	formattedDigest := strings.ReplaceAll(id, ":", "-")
+func (s Scanner) SetImageOnDataStore(image Image, duration time.Duration) error {
 
-	if status == StrAllowed {
-		allowed = true
-	}
-
-	err := s.Cache.Set(id, allowed, duration)
+	err := s.Cache.Set(image.FormmatedDigest, image.Allowed, duration)
 	if err != nil {
 		return fmt.Errorf("failed to set resource on cache: %v", err)
 	}
@@ -192,22 +178,22 @@ func (s Scanner) SetImageOnDataStore(id string, status string, pullString string
 		Resource: kubernetes.ResourcePlural,
 	}
 
-	image := &unstructured.Unstructured{
+	scannedImageResource := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "trivyac.io/v1",
 			"kind":       "ScannedImage",
 			"metadata": map[string]interface{}{
-				"name": formattedDigest,
+				"name": image.FormmatedDigest,
 			},
 			"spec": map[string]interface{}{
-				"imageDigest":     id,
-				"allowed":         allowed,
-				"imagePullString": pullString,
+				"imageDigest":     image.Digest,
+				"allowed":         image.Allowed,
+				"imagePullString": image.PullString,
 			},
 		},
 	}
 
-	_, err = kubernetes.GetClient().Dynamic.Resource(gvr).Namespace(config.Cfg.Namespace).Create(context.TODO(), image, metav1.CreateOptions{})
+	_, err = kubernetes.GetClient().Dynamic.Resource(gvr).Namespace(config.Cfg.Namespace).Create(context.TODO(), scannedImageResource, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to create resource on kubernetes data store: %v", err)
 	}

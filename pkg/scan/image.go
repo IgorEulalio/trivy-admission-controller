@@ -88,12 +88,25 @@ func NewImageFromPullString(pullString string) (*Image, error) {
 			repository = repositoryWithRegistry
 		}
 	}
-
+	var digest string
+	var err error
+	digest, err = getDigest(registry, repository, tag)
+	if err != nil {
+		return &Image{
+			Registry:   registry,
+			Repository: repository,
+			Tag:        tag,
+			PullString: pullString,
+			Digest:     digest,
+		}, err
+	}
 	return &Image{
-		Registry:   registry,
-		Repository: repository,
-		Tag:        tag,
-		PullString: pullString,
+		Registry:        registry,
+		Repository:      repository,
+		Tag:             tag,
+		PullString:      pullString,
+		Digest:          digest,
+		FormmatedDigest: strings.ReplaceAll(digest, ":", "-"),
 	}, nil
 }
 
@@ -107,7 +120,7 @@ func (i Image) GetDigest() (string, error) {
 		repo = fmt.Sprintf("library/%s", i.Repository)
 	}
 
-	manifest, err := i.GetImageManifest(repo, i.Tag, config.Cfg.DockerToken)
+	manifest, err := getImageManifest(repo, i.Tag, config.Cfg.DockerToken)
 	if err != nil {
 		return "", fmt.Errorf("error getting manifest: %w", err)
 	}
@@ -123,7 +136,27 @@ func (i Image) GetDigest() (string, error) {
 	return manifest.Config.Digest, nil
 }
 
-func (i Image) GetImageManifest(repository, tag, encodedToken string) (*ManifestResponse, error) {
+// getDigest returns the digest for a given image
+// for now we ignore the registry parameter since we only support docker
+func getDigest(_ string, repo string, tag string) (string, error) {
+
+	manifest, err := getImageManifest(repo, tag, config.Cfg.DockerToken)
+	if err != nil {
+		return "", fmt.Errorf("error getting manifest: %w", err)
+	}
+
+	if len(manifest.Manifests) > 1 {
+		return "", fmt.Errorf("multiple manifests found, cache for multi-archs not supported ")
+	}
+
+	if manifest.Config.Digest == "" {
+		return "", fmt.Errorf("no digest found in manifest response config")
+	}
+
+	return manifest.Config.Digest, nil
+}
+
+func getImageManifest(repository, tag, encodedToken string) (*ManifestResponse, error) {
 	manifestURL := fmt.Sprintf("https://registry-1.docker.io/v2/%s/manifests/%s", repository, tag)
 	req, err := http.NewRequest("GET", manifestURL, nil)
 	if err != nil {
