@@ -172,7 +172,8 @@ func (s Scanner) GetImageFromDataStore(image Image) (*Image, error) {
 	return &image, nil
 }
 
-func (s Scanner) SetImageOnDataStore(id string, status string, duration time.Duration) error {
+// set image needs to receive image
+func (s Scanner) SetImageOnDataStore(id string, status string, pullString string, duration time.Duration) error {
 	var allowed bool
 	formattedDigest := strings.ReplaceAll(id, ":", "-")
 
@@ -199,8 +200,9 @@ func (s Scanner) SetImageOnDataStore(id string, status string, duration time.Dur
 				"name": formattedDigest,
 			},
 			"spec": map[string]interface{}{
-				"imageDigest": id,
-				"allowed":     allowed,
+				"imageDigest":     id,
+				"allowed":         allowed,
+				"imagePullString": pullString,
 			},
 		},
 	}
