@@ -55,7 +55,7 @@ func (s Scanner) Scan(imagesToBeScanned []image.Image) ([]ScanResult, error) {
 	for _, imageToBeScanned := range imagesToBeScanned {
 		outputFilePath := fmt.Sprintf("%s/%s-%s.json", s.OutputDir, "scan", time.Now().Format("02:15:04"))
 		command := fmt.Sprintf("%s image %s -o %s --scanners %s --format json", config.Cfg.TrivyPath, imageToBeScanned.PullString, outputFilePath, strings.Join(s.ScannerModes, ","))
-		logger.Debug().Msgf("Running command: %s for imageToBeScanned %s", command, imageToBeScanned.PullString)
+		logger.Debug().Msgf("Running command: %s for image %s", command, imageToBeScanned.PullString)
 
 		cmd := exec.Command("sh", "-c", command)
 		var out, stderr strings.Builder

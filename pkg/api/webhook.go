@@ -109,9 +109,11 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 			result.Image.Allowed = false
 			// ImageID from trivy scan result matches config.digest from docker hub response
 			//err := scanner.SetImageOnDataStore(result.Metadata.ImageID, scan.StrDenied, result.ArtifactName, 1*time.Hour)
-			err := h.Scanner.SetImageOnDataStore(result.Image, 1*time.Hour)
-			if err != nil {
-				logger.Warn().Msgf("Error setting cache: %v", err)
+			if result.Image.Digest != "" {
+				err := h.Scanner.SetImageOnDataStore(result.Image, 1*time.Hour)
+				if err != nil {
+					logger.Warn().Msgf("Error setting cache: %v", err)
+				}
 			}
 		} else {
 			admissionResponse = &admissionv1.AdmissionResponse{
@@ -122,7 +124,12 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 			}
 			result.Image.Allowed = true
 			// ImageID from trivy scan result matches config.digest from docker hub response
-			err := h.Scanner.SetImageOnDataStore(result.Image, 1*time.Hour)
+			if result.Image.Digest != "" {
+				err := h.Scanner.SetImageOnDataStore(result.Image, 1*time.Hour)
+				if err != nil {
+					logger.Warn().Msgf("Error setting cache: %v", err)
+				}
+			}
 			if err != nil {
 				logger.Warn().Msgf("Error inputing image into data store: %v", err)
 			}
