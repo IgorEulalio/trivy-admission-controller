@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
@@ -108,11 +109,10 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 			}
 			result.Image.Allowed = false
 			// ImageID from trivy scan result matches config.digest from docker hub response
-			//err := scanner.SetImageOnDataStore(result.Metadata.ImageID, scan.StrDenied, result.ArtifactName, 1*time.Hour)
 			if result.Image.Digest != "" {
-				err := h.Scanner.SetImageOnDataStore(result.Image, 1*time.Hour)
+				err := h.Scanner.SetImageOnDataStore(result.Image, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
 				if err != nil {
-					logger.Warn().Msgf("Error setting cache: %v", err)
+					logger.Warn().Msgf("Error inputing image into data store: %v", err)
 				}
 			}
 		} else {
@@ -125,13 +125,10 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 			result.Image.Allowed = true
 			// ImageID from trivy scan result matches config.digest from docker hub response
 			if result.Image.Digest != "" {
-				err := h.Scanner.SetImageOnDataStore(result.Image, 1*time.Hour)
+				err := h.Scanner.SetImageOnDataStore(result.Image, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
 				if err != nil {
-					logger.Warn().Msgf("Error setting cache: %v", err)
+					logger.Warn().Msgf("Error inputing image into data store: %v", err)
 				}
-			}
-			if err != nil {
-				logger.Warn().Msgf("Error inputing image into data store: %v", err)
 			}
 		}
 	}

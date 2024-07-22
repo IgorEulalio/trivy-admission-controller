@@ -21,6 +21,7 @@ type LocalCacheConfig struct {
 }
 
 type CacheConfig struct {
+	ObjectTTL   int              `mapstructure:"object_ttl"`
 	RedisConfig RedisConfig      `mapstructure:"redis"`
 	LocalConfig LocalCacheConfig `mapstructure:"local"`
 }
@@ -81,4 +82,5 @@ func setDefaultValues() {
 	viper.SetDefault("output_dir", "./")
 	viper.SetDefault("namespace", "default")
 	viper.SetDefault("trivy_path", "/usr/local/bin/trivy")
+	viper.SetDefault("cache.object_ttl", 3600)
 }
