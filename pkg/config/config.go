@@ -29,7 +29,6 @@ type CacheConfig struct {
 type Config struct {
 	Port        int         `mapstructure:"port"`
 	CacheConfig CacheConfig `mapstructure:"cache"`
-	DockerToken string      `mapstructure:"docker_token"`
 	OutputDir   string      `mapstructure:"output_dir"`
 	KubeConfig  string      `mapstructure:"kube_config"`
 	Namespace   string      `mapstructure:"namespace"`
@@ -77,7 +76,7 @@ func InitConfig() {
 
 func setDefaultValues() {
 	viper.SetDefault("port", 8080)
-	viper.SetDefault("cache.local.expiration", 200)
+	viper.SetDefault("cache.object_ttl", 3600)
 	viper.SetDefault("cache.local.max_size", 5000)
 	viper.SetDefault("output_dir", "./")
 	viper.SetDefault("namespace", "default")

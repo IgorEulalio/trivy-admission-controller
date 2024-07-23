@@ -15,6 +15,7 @@ import (
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan/result"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -47,10 +48,10 @@ func NewScanner(c cache.Cache, client kubernetes.Client) (*Scanner, error) {
 	}, nil
 }
 
-func (s Scanner) Scan(imagesToBeScanned []image.Image) ([]ScanResult, error) {
+func (s Scanner) Scan(imagesToBeScanned []image.Image) ([]result.ScanResult, error) {
 	logger := logging.Logger()
 
-	var results []ScanResult
+	var results []result.ScanResult
 
 	for _, imageToBeScanned := range imagesToBeScanned {
 		outputFilePath := fmt.Sprintf("%s/%s-%s.json", s.OutputDir, "scan", time.Now().Format("02:15:04"))
@@ -72,8 +73,6 @@ func (s Scanner) Scan(imagesToBeScanned []image.Image) ([]ScanResult, error) {
 			return nil, err2
 		}
 
-		result.Image = imageToBeScanned
-
 		results = append(results, *result)
 	}
 
@@ -89,30 +88,29 @@ func (s Scanner) GetImagesThatNeedScan(images []image.Image) (imagesToBeScanned 
 	var err error
 	shallAttemptToRetrieveImage := true
 
-	for _, image := range images {
-		if image.Digest == "" && err != nil {
+	for _, i := range images {
+		if i.Digest == "" && err != nil {
 			shallAttemptToRetrieveImage = false
 			logger.Warn().Msgf("image digest is empty, will not attemp to retrieve image from data store: %v", err)
 		}
 		if shallAttemptToRetrieveImage {
-			logger.Debug().Msgf("attempting to get image from data store %v with digest %v", image.PullString, image.Digest)
-			imageFromDataStore, err := s.GetImageFromDataStore(image)
+			logger.Debug().Msgf("attempting to get image from data store %v with digest %v", i.PullString, i.Digest)
+			imageFromDataStore, err := s.GetImageFromDataStore(i)
 			if err != nil {
-				toBeScanned = append(toBeScanned, image)
+				toBeScanned = append(toBeScanned, i)
 			} else if imageFromDataStore.Allowed {
-				allowedImages = append(allowedImages, image)
+				allowedImages = append(allowedImages, i)
 			} else if !imageFromDataStore.Allowed {
-				deniedImages = append(deniedImages, image)
+				deniedImages = append(deniedImages, i)
 			}
 		} else {
-			toBeScanned = append(toBeScanned, image)
+			toBeScanned = append(toBeScanned, i)
 		}
 	}
 
 	return toBeScanned, deniedImages, allowedImages
 }
 
-// need to implement both s.Cache.GetImage and s.KubernetesClient.GetImage
 func (s Scanner) GetImageFromDataStore(image image.Image) (*image.Image, error) {
 	logger := logging.Logger()
 
@@ -146,7 +144,6 @@ func (s Scanner) GetImageFromDataStore(image image.Image) (*image.Image, error) 
 	return &image, nil
 }
 
-// need to implement both s.Cache.SetImage and s.KubernetesClient.SetImage
 func (s Scanner) SetImageOnDataStore(image image.Image, duration time.Duration) error {
 
 	err := s.Cache.Set(image.FormmatedDigest, image.Allowed, duration)
@@ -183,8 +180,8 @@ func (s Scanner) SetImageOnDataStore(image image.Image, duration time.Duration) 
 	return nil
 }
 
-func getResultFromFileSystem(path string) (*ScanResult, error) {
-	var result ScanResult
+func getResultFromFileSystem(path string) (*result.ScanResult, error) {
+	var result result.ScanResult
 
 	file, err := os.ReadFile(path)
 	if err != nil {

@@ -14,25 +14,26 @@ import (
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan/result"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type Handler struct {
+type ValidateHandler struct {
 	Cache            cache.Cache
 	KubernetesClient kubernetes.Client
 	Scanner          scan.Scanner
 }
 
-func NewHandler(c cache.Cache, client *kubernetes.Client) (*Handler, error) {
+func NewValidateHandler(c cache.Cache, client *kubernetes.Client) (*ValidateHandler, error) {
 	scanner, err := scan.NewScanner(c, *client)
 	if err != nil {
 		return nil, err
 	}
-	return &Handler{Cache: c, KubernetesClient: *client, Scanner: *scanner}, nil
+	return &ValidateHandler{Cache: c, KubernetesClient: *client, Scanner: *scanner}, nil
 }
 
-func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
+func (h ValidateHandler) Validate(w http.ResponseWriter, r *http.Request) {
 	logger := logging.Logger()
 
 	if r.Method != "POST" {
@@ -62,7 +63,7 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 	imagesToBeScanned, imagesDeniedOnCache, imagesAllowedOnCache := h.Scanner.GetImagesThatNeedScan(images)
 	var containsVulnerability bool
 	var admissionResponse *admissionv1.AdmissionResponse
-	var scanResults []scan.ScanResult
+	var scanResults []result.ScanResult
 
 	if len(imagesToBeScanned) == 0 && len(imagesDeniedOnCache) == 0 {
 		imagePullStrings := make([]string, len(imagesAllowedOnCache))
@@ -106,34 +107,41 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 			admissionResponse = &admissionv1.AdmissionResponse{
 				Allowed: false,
 				Result: &metav1.Status{
-					Message: fmt.Sprintf("Image %s with digest %s contains vulnerabilities", result.Image.PullString, result.Image.Digest),
+					Message: fmt.Sprintf("Image %s with digest %s contains vulnerabilities", result.ArtifactName, result.Metadata.ImageID),
 				},
 			}
-			result.Image.Allowed = false
-			// ImageID from trivy scan result matches config.digest from docker hub response
-			if result.Image.Digest != "" {
-				err := h.Scanner.SetImageOnDataStore(result.Image, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
-				if err != nil {
-					logger.Warn().Msgf("Error inputing image into data store: %v", err)
+			imageFromScanResult, err := image.NewImageFromScanResult(result)
+			if err != nil {
+				logger.Warn().Msgf("Error creating image from scan result: %v", err)
+			} else { // We should not fail if not able to input image into data store
+				if imageFromScanResult.Digest != "" {
+					err := h.Scanner.SetImageOnDataStore(*imageFromScanResult, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
+					if err != nil {
+						logger.Warn().Msgf("Error inputing image into data store: %v", err)
+					}
 				}
 			}
 		} else {
 			admissionResponse = &admissionv1.AdmissionResponse{
 				Allowed: true,
 				Result: &metav1.Status{
-					Message: fmt.Sprintf("Image %s with digest %s does not contain vulnerabilities", result.Image.PullString, result.Image.Digest),
+					Message: fmt.Sprintf("Image %s with digest %s does not contain vulnerabilities", result.ArtifactName, result.Metadata.ImageID),
 				},
 			}
-			result.Image.Allowed = true
-			// ImageID from trivy scan result matches config.digest from docker hub response
-			if result.Image.Digest != "" {
-				err := h.Scanner.SetImageOnDataStore(result.Image, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
-				if err != nil {
-					logger.Warn().Msgf("Error inputing image into data store: %v", err)
+			imageFromScanResult, err := image.NewImageFromScanResult(result)
+			imageFromScanResult.Allowed = true
+			if err != nil {
+				logger.Warn().Msgf("Error creating image from scan result: %v", err)
+			} else {
+				if imageFromScanResult.Digest != "" {
+					err := h.Scanner.SetImageOnDataStore(*imageFromScanResult, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
+					if err != nil {
+						logger.Warn().Msgf("Error inputing image into data store: %v", err)
+					}
 				}
 			}
 		}
-		logger.Debug().Bool("containsVulnerability", containsVulnerability).Msgf("Image %s with digest %s", result.Image.PullString, result.Image.Digest)
+		logger.Debug().Bool("containsVulnerability", containsVulnerability).Msgf("Image %s with digest %s", result.ArtifactName, result.Metadata.ImageID)
 	}
 
 	admissionReview.Response = admissionResponse

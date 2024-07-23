@@ -7,136 +7,36 @@ The Trivy Admission Controller is a Kubernetes admission controller designed to 
 - **Integration with Trivy**: Seamlessly integrates with Trivy to ensure images are scanned for vulnerabilities before being deployed.
 - **Prevents Deployment of Vulnerable Images**: Blocks the deployment of images that fail security scans, ensuring only secure images are deployed.
 - **CRD-based Storage**: Uses Kubernetes CRDs and ETCD for data storage, eliminating the need for external databases.
-- **Easy to Deploy**: Can be easily deployed as part of your Kubernetes cluster.
+- **Easy to Deploy**: Can be easily deployed as part of your Kubernetes cluster by using our helm chart.
 
 ## How It Works
 
-1. **Admission Review**: When a new pod is created, the admission controller intercepts the request and retrieves the images to be used in the pod.
-2. **Image Scan Check**: It checks if the image has already been scanned by querying the Kubernetes datastore.
-3. **Scan with Trivy**: If the image has not been scanned or if the scan results are outdated, it triggers a Trivy scan.
-4. **Store Results**: The results of the scan are stored using Kubernetes CRDs.
-5. **Decision**: Based on the scan results, the controller allows or denies the deployment of the pod.
+1. **Scan image with trivy CLI in the pipeline**: Trivy is used in the pipeline and generates a JSON output.
+2. **Call admission controller from the pipeline**: Call the admission controller with the JSON output from Trivy so the admission-controller can store the image in cache.
+3. **Admission Review**: When a new pod is created, the Kube API server calls the webhook as per instructions in the [dynamic admission controller docs](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/), sending the AdmissionReview.
+4. **Admission Review validation**: Here's where the main validation happens, the admission controller checks if the image has been scanned in the pipeline and is not outdated (purged from the cache). If the image has not been scanned or if the scan results are outdated, it triggers a Trivy scan. It returns allowed or denied based on this validation.
+5. **Store Results**: The results of the scan are stored in ETCD and used if any following requests are made for the same image.
+6. **Response**: The admission controller returns a response to the Kube API server, which then allows or denies the pod creation request based on the response.
+
+![Architecture](docs/architecture.png?raw=true "Architecture")
+
 
 ## Installation
 
 ### Prerequisites
 
-- Kubernetes cluster
-- Trivy installed and accessible within the cluster
+- Kubernetes cluster and access to deploy resources in it
+- Helm
 
-### Deploy the Admission Controller
+### Deploy the Admission Controller with Helm
 
-1. **Apply the CRD**
-
-    ```sh
-    kubectl apply -f crd.yaml
-    ```
-
-2. **Create Service Account, Role, and RoleBinding**
-
-    ```yaml
-    apiVersion: v1
-    kind: ServiceAccount
-    metadata:
-      name: trivy-ac-serviceaccount
-      namespace: default
-    ---
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: Role
-    metadata:
-      name: trivy-ac-role
-      namespace: default
-    rules:
-    - apiGroups: ["trivyac.io"]
-      resources: ["scannedimages"]
-      verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
-    ---
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: RoleBinding
-    metadata:
-      name: trivy-ac-rolebinding
-      namespace: default
-    subjects:
-    - kind: ServiceAccount
-      name: trivy-ac-serviceaccount
-      namespace: default
-    roleRef:
-      kind: Role
-      name: trivy-ac-role
-      apiGroup: rbac.authorization.k8s.io
-    ```
-
-   Apply the configurations:
+1. **Deploy the helm chart**
 
     ```sh
-    kubectl apply -f serviceaccount.yaml
-    kubectl apply -f role.yaml
-    kubectl apply -f rolebinding.yaml
+    helm upgrade --install trivy-ac --namespace trivy-admission-controller --create-namespace ./
     ```
 
-3. **Deploy the Admission Controller**
-
-    ```yaml
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
-      name: trivy-admission-controller
-    spec:
-      replicas: 1
-      selector:
-        matchLabels:
-          app: trivy-admission-controller
-      template:
-        metadata:
-          labels:
-            app: trivy-admission-controller
-        spec:
-          serviceAccountName: trivy-ac-serviceaccount
-          containers:
-          - name: trivy-admission-controller
-            image: your-image-repo/trivy-admission-controller:latest
-            ports:
-            - containerPort: 8443
-    ```
-
-   Apply the deployment:
-
-    ```sh
-    kubectl apply -f chart.yaml
-    ```
-
-4. **Create the ValidatingWebhookConfiguration**
-
-    ```yaml
-    apiVersion: admissionregistration.k8s.io/v1
-    kind: ValidatingWebhookConfiguration
-    metadata:
-      name: "trivy-admission-controller"
-    webhooks:
-      - name: "trivy.admissioncontroller.com"
-        rules:
-          - apiGroups:   [""]
-            apiVersions: ["v1"]
-            operations:  ["CREATE"]
-            resources:   ["pods"]
-            scope:       "Namespaced"
-        clientConfig:
-          service:
-            namespace: "default"
-            name: trivy-admission-controller
-            path: /validate
-            port: 8443
-          caBundle: <your-ca-bundle>
-        admissionReviewVersions: ["v1"]
-        sideEffects: None
-        timeoutSeconds: 5
-    ```
-
-   Apply the webhook configuration:
-
-    ```sh
-    kubectl apply -f webhook.yaml
-    ```
+That should deploy the admission-controller in the trivy-admission-controller namespace along the CRDs and the service account.   
 
 ## Usage
 
@@ -144,15 +44,41 @@ Once deployed, the Trivy Admission Controller will automatically intercept pod c
 
 ## Configuration
 
+There are two ways to configure the Trivy Admission Controller: environment variables and a config file.
+
 ### Environment Variables
 
-- `TRIVY_SERVER`: The URL of the Trivy server.
-- `CACHE_TTL`: The time-to-live for cached scan results.
+- `trivy_path`: The path to the Trivy binary. Default is `/usr/local/bin/trivy`.
+- `namespace`: The namespace where CRD from trivy-admission-controller will be created. Default is `trivy-admission-controller`.
+- `kube_config`: Path to kube_config file, it should be used only in development. Default is `~/.kube/config`.
+- `output_dir`: Output directory where the scan results will be stored. Default is `/tmp`.
+- `cache.local.max_size`: Maximum number of image bytes to store in the cache. Default is `5000`.
+- `cache.object_ttl`: Time to live for the cache object. Default is `1h (3600s)`.
 
+### Config file
+
+Example config file:
+```yaml
+kube_config: "$HOME/.kube/config"
+port: 5001
+output_dir: "./"
+namespace: default
+trivy_path: /opt/homebrew/bin/trivy
+tls_cert_file: $HOME/certs/server.crt
+tls_key_file: $HOME/certs/server.key
+#cache:
+#  redis:
+#    port:
+#    password:
+#    database:
+#  local:
+#    expiration: 10
+#    max_size: 100
+```
 ## Contributing
 
 We welcome contributions! Please open an issue or submit a pull request on GitHub.
 
 ## License
 
-This project is licensed under the MIT License.
+Trivy Admission Controller is licensed to you under the Apache 2.0 open source license.

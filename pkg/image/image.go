@@ -7,6 +7,7 @@ import (
 
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/loader"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan/result"
 	v1 "k8s.io/api/admission/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -53,6 +54,15 @@ func NewImagesFromAdmissionReview(ar v1.AdmissionReview) ([]Image, error) {
 	}
 
 	return images, nil
+}
+
+func NewImageFromScanResult(scanResult result.ScanResult) (*Image, error) {
+	image, err := newImageFromPullString(scanResult.ArtifactName, []string{})
+	if err != nil {
+		return nil, fmt.Errorf("error creating image from scan result: %v", err)
+	}
+
+	return image, nil
 }
 
 func newImageFromPullString(pullString string, pullSecrets []string) (*Image, error) {

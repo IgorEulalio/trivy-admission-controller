@@ -1,9 +1,7 @@
-package scan
+package result
 
 import (
 	"time"
-
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
 )
 
 type ScanResult struct {
@@ -12,7 +10,6 @@ type ScanResult struct {
 	ArtifactType    string           `json:"ArtifactType"`
 	Metadata        Metadata         `json:"Metadata"`
 	DetailedResults []DetailedResult `json:"Results"`
-	Image           image.Image
 }
 
 type Metadata struct {
@@ -121,13 +118,13 @@ func (r ScanResult) HasVulnerabilities(optSeverity ...string) (bool, error) {
 
 	if len(optSeverity) > 0 {
 		severity := optSeverity[0]
-		return r.ContainsVulnerabilityBySeverity(severity), nil
+		return r.containsVulnerabilityBySeverity(severity), nil
 	}
 
-	return r.ContainsVulnerability(), nil
+	return r.containsVulnerability(), nil
 }
 
-func (r ScanResult) ContainsVulnerabilityBySeverity(severity string) bool {
+func (r ScanResult) containsVulnerabilityBySeverity(severity string) bool {
 	for _, result := range r.DetailedResults {
 		for _, vuln := range result.Vulnerabilities {
 			if vuln.Severity == severity {
@@ -138,7 +135,7 @@ func (r ScanResult) ContainsVulnerabilityBySeverity(severity string) bool {
 	return false
 }
 
-func (r ScanResult) ContainsVulnerability() bool {
+func (r ScanResult) containsVulnerability() bool {
 	for _, result := range r.DetailedResults {
 		if len(result.Vulnerabilities) > 0 {
 			return true

@@ -30,12 +30,18 @@ func Run() {
 		logger.Fatal().Msgf("Error creating kubernetes client: %v", err)
 	}
 
-	handler, err := api.NewHandler(c, kubernetes.GetClient())
+	validateHandler, err := api.NewValidateHandler(c, kubernetes.GetClient())
 	if err != nil {
-		logger.Fatal().Msgf("Error creating handler: %v", err)
+		logger.Fatal().Msgf("Error creating validateHandler: %v", err)
 	}
 
-	http.HandleFunc("/validate", handler.Validate)
+	scanHandler, err := api.NewScanHandler(c, kubernetes.GetClient())
+	if err != nil {
+		logger.Fatal().Msgf("Error creating scanHandler: %v", err)
+	}
+
+	http.HandleFunc("/validate", validateHandler.Validate)
+	http.HandleFunc("/scan", scanHandler.Scan)
 	logger.Info().Msgf("Starting server on port %v, using certificate file %v and certificate key %v", config.Port, config.CertFile, config.KeyFile)
 	log.Fatal(http.ListenAndServeTLS(fmt.Sprintf("%s:%v", "0.0.0.0", config.Port), config.CertFile, config.KeyFile, nil))
 }
