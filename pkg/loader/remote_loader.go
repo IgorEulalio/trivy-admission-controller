@@ -30,9 +30,7 @@ type DockerAuth struct {
 }
 
 type Loader struct {
-	config loaderConfig
-	//auth             authn.Authenticator
-	//keychain         authn.Keychain
+	config           loaderConfig
 	imagePullSecrets []string
 	imagePullString  string
 }
@@ -82,15 +80,15 @@ func (l Loader) GetImageDigest() (string, error) {
 	if len(l.imagePullSecrets) > 0 {
 		username, password, err := l.GetIdentityFromSecret()
 		if err != nil {
-			return "", err
-		}
+			logger.Warn().Msgf("error fetching secrets, defaulting to default keychain, acr helper, ecr helper or gcr keychain: %v", err)
+		} else {
+			basicAuth := &authn.Basic{
+				Username: username,
+				Password: password,
+			}
 
-		basicAuth := &authn.Basic{
-			Username: username,
-			Password: password,
+			remoteOpts = append(remoteOpts, remote.WithAuth(basicAuth))
 		}
-
-		remoteOpts = append(remoteOpts, remote.WithAuth(basicAuth))
 	}
 
 	img, err := remote.Image(ref, remoteOpts...)

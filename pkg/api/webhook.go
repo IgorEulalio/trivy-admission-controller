@@ -89,6 +89,7 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		scanResults, err = h.Scanner.Scan(imagesToBeScanned)
 		if err != nil {
+			logger.Error().Msgf("Error scanning images: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -97,6 +98,7 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 	for _, result := range scanResults {
 		containsVulnerability, err = result.HasVulnerabilities()
 		if err != nil {
+			logger.Error().Msgf("Error verifying result: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -131,6 +133,7 @@ func (h Handler) Validate(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		logger.Debug().Bool("containsVulnerability", containsVulnerability).Msgf("Image %s with digest %s", result.Image.PullString, result.Image.Digest)
 	}
 
 	admissionReview.Response = admissionResponse
