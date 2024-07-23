@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -63,7 +64,7 @@ func (l Loader) GetImageDigest() (string, error) {
 
 	kcs = []authn.Keychain{
 		authn.DefaultKeychain,
-		authn.NewKeychainFromHelper(ecr.NewECRHelper()),
+		authn.NewKeychainFromHelper(ecr.NewECRHelper(ecr.WithLogger(io.Discard))),
 		authn.NewKeychainFromHelper(azure.NewACRCredentialsHelper()),
 		// google requires gcloud/gcr adapter to be present on FS - that's why we embed it in the container - TODO
 		google.Keychain,
