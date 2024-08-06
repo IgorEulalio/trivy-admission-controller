@@ -13,18 +13,19 @@ import (
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan/result"
 )
 
-func NewScanHandler(c cache.Cache, client *kubernetes.Client) (*ScanHandler, error) {
+func NewScanHandler(c cache.Cache, client *kubernetes.Client, loader image.Loader) (*ScanHandler, error) {
 	scanner, err := scan.NewScanner(c, *client)
 	if err != nil {
 		return nil, err
 	}
-	return &ScanHandler{Cache: c, KubernetesClient: *client, Scanner: *scanner}, nil
+	return &ScanHandler{Cache: c, KubernetesClient: *client, Scanner: *scanner, loader: loader}, nil
 }
 
 type ScanHandler struct {
 	Cache            cache.Cache
 	KubernetesClient kubernetes.Client
 	Scanner          scan.Scanner
+	loader           image.Loader
 }
 
 func (h ScanHandler) Scan(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +47,7 @@ func (h ScanHandler) Scan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	imageFromScan, err := image.NewImageFromScanResult(scanResult)
+	imageFromScan, err := image.NewImageFromScanResult(scanResult, h.loader)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

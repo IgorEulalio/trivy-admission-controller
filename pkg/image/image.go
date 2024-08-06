@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/loader"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan/result"
 	v1 "k8s.io/api/admission/v1"
@@ -18,13 +17,13 @@ type Image struct {
 	Tag             string
 	PullString      string
 	Digest          string
-	FormmatedDigest string
+	FormattedDigest string
 	Registry        string
 	Allowed         bool
 	PullSecrets     []string
 }
 
-func NewImagesFromAdmissionReview(ar v1.AdmissionReview) ([]Image, error) {
+func NewImagesFromAdmissionReview(ar v1.AdmissionReview, loader Loader) ([]Image, error) {
 	var images []Image
 
 	rawObject := ar.Request.Object.Raw
@@ -36,19 +35,19 @@ func NewImagesFromAdmissionReview(ar v1.AdmissionReview) ([]Image, error) {
 		if err := json.Unmarshal(rawObject, &pod); err != nil {
 			return nil, err
 		}
-		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&pod.Spec)...)
+		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&pod.Spec, loader)...)
 	case "Deployment":
 		var deploy appsv1.Deployment
 		if err := json.Unmarshal(rawObject, &deploy); err != nil {
 			return nil, err
 		}
-		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&deploy.Spec.Template.Spec)...)
+		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&deploy.Spec.Template.Spec, loader)...)
 	case "DaemonSet":
 		var ds appsv1.DaemonSet
 		if err := json.Unmarshal(rawObject, &ds); err != nil {
 			return nil, err
 		}
-		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&ds.Spec.Template.Spec)...)
+		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&ds.Spec.Template.Spec, loader)...)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", groupVersionKind.Kind)
 	}
@@ -56,8 +55,8 @@ func NewImagesFromAdmissionReview(ar v1.AdmissionReview) ([]Image, error) {
 	return images, nil
 }
 
-func NewImageFromScanResult(scanResult result.ScanResult) (*Image, error) {
-	image, err := newImageFromPullString(scanResult.ArtifactName, []string{})
+func NewImageFromScanResult(scanResult result.ScanResult, loader Loader) (*Image, error) {
+	image, err := newImageFromPullString(scanResult.ArtifactName, []string{}, loader)
 	if err != nil {
 		return nil, fmt.Errorf("error creating image from scan result: %v", err)
 	}
@@ -65,7 +64,7 @@ func NewImageFromScanResult(scanResult result.ScanResult) (*Image, error) {
 	return image, nil
 }
 
-func newImageFromPullString(pullString string, pullSecrets []string) (*Image, error) {
+func newImageFromPullString(pullString string, pullSecrets []string, loader Loader) (*Image, error) {
 	var registry, repository, tag string
 
 	repositoryWithRegistry, tag, found := strings.Cut(pullString, ":")
@@ -92,7 +91,8 @@ func newImageFromPullString(pullString string, pullSecrets []string) (*Image, er
 	}
 	var digest string
 	var err error
-	digest, err = getDigest(registry, repository, tag, pullSecrets)
+
+	digest, err = loader.GetImageDigest(pullString, pullSecrets)
 	if err != nil {
 		return &Image{
 			Registry:   registry,
@@ -108,35 +108,11 @@ func newImageFromPullString(pullString string, pullSecrets []string) (*Image, er
 		Tag:             tag,
 		PullString:      pullString,
 		Digest:          digest,
-		FormmatedDigest: strings.ReplaceAll(digest, ":", "-"),
+		FormattedDigest: strings.ReplaceAll(digest, ":", "-"),
 	}, nil
 }
 
-// getDigest returns the digest for a given image
-// for now we ignore the registry parameter since we only support docker
-func getDigest(registry string, repo string, tag string, pullSecrets []string) (string, error) {
-
-	image := Image{
-		Repository:      repo,
-		Tag:             tag,
-		PullString:      fmt.Sprintf("%s/%s:%s", registry, repo, tag),
-		Digest:          "",
-		FormmatedDigest: "",
-		Registry:        registry,
-		Allowed:         false,
-		PullSecrets:     pullSecrets,
-	}
-
-	loader := loader.NewLoader(image.PullString, image.PullSecrets)
-	digest, err := loader.GetImageDigest()
-	if err != nil {
-		return "", err
-	}
-
-	return digest, nil
-}
-
-func extractContainerImagesAndPullSecretsFromPodSpec(podSpec *corev1.PodSpec) []Image {
+func extractContainerImagesAndPullSecretsFromPodSpec(podSpec *corev1.PodSpec, loader Loader) []Image {
 	logger := logging.Logger()
 
 	var images []Image
@@ -148,7 +124,7 @@ func extractContainerImagesAndPullSecretsFromPodSpec(podSpec *corev1.PodSpec) []
 				pullSecrets = append(pullSecrets, pullSecret.Name)
 			}
 		}
-		image, err := newImageFromPullString(container.Image, pullSecrets)
+		image, err := newImageFromPullString(container.Image, pullSecrets, loader)
 		if err != nil {
 			logger.Warn().Msgf("Error obtaining image digest: %v", err)
 		}

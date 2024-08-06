@@ -114,7 +114,7 @@ func (s Scanner) GetImagesThatNeedScan(images []image.Image) (imagesToBeScanned 
 func (s Scanner) GetImageFromDataStore(image image.Image) (*image.Image, error) {
 	logger := logging.Logger()
 
-	allowOrDeny, presentOnCache := s.Cache.Get(image.FormmatedDigest)
+	allowOrDeny, presentOnCache := s.Cache.Get(image.FormattedDigest)
 	if presentOnCache {
 		logger.Debug().Msgf("image %v with digest %v found on cache with allowed %v", image.PullString, image.Digest, allowOrDeny)
 		if allowOrDeny == "true" {
@@ -140,13 +140,13 @@ func (s Scanner) GetImageFromDataStore(image image.Image) (*image.Image, error) 
 	logger.Debug().Msgf("image %v with digest %v found on kubernetes store with status %v", image.PullString, image.Digest, resource.Object["spec"].(map[string]interface{})["allowed"].(bool))
 
 	image.Allowed = resource.Object["spec"].(map[string]interface{})["allowed"].(bool)
-	image.FormmatedDigest = formmatedDigest
+	image.FormattedDigest = formmatedDigest
 	return &image, nil
 }
 
 func (s Scanner) SetImageOnDataStore(image image.Image, duration time.Duration) error {
 
-	err := s.Cache.Set(image.FormmatedDigest, image.Allowed, duration)
+	err := s.Cache.Set(image.FormattedDigest, image.Allowed, duration)
 	if err != nil {
 		return fmt.Errorf("failed to set resource on cache: %v", err)
 	}
@@ -162,7 +162,7 @@ func (s Scanner) SetImageOnDataStore(image image.Image, duration time.Duration) 
 			"apiVersion": "trivyac.io/v1",
 			"kind":       "ScannedImage",
 			"metadata": map[string]interface{}{
-				"name": image.FormmatedDigest,
+				"name": image.FormattedDigest,
 			},
 			"spec": map[string]interface{}{
 				"imageDigest":     image.Digest,

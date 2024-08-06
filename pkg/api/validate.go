@@ -23,14 +23,15 @@ type ValidateHandler struct {
 	Cache            cache.Cache
 	KubernetesClient kubernetes.Client
 	Scanner          scan.Scanner
+	loader           image.Loader
 }
 
-func NewValidateHandler(c cache.Cache, client *kubernetes.Client) (*ValidateHandler, error) {
+func NewValidateHandler(c cache.Cache, client *kubernetes.Client, loader image.Loader) (*ValidateHandler, error) {
 	scanner, err := scan.NewScanner(c, *client)
 	if err != nil {
 		return nil, err
 	}
-	return &ValidateHandler{Cache: c, KubernetesClient: *client, Scanner: *scanner}, nil
+	return &ValidateHandler{Cache: c, KubernetesClient: *client, Scanner: *scanner, loader: loader}, nil
 }
 
 func (h ValidateHandler) Validate(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +56,7 @@ func (h ValidateHandler) Validate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	images, err := image.NewImagesFromAdmissionReview(admissionReview)
+	images, err := image.NewImagesFromAdmissionReview(admissionReview, h.loader)
 	if err != nil {
 		return
 	}
@@ -110,7 +111,7 @@ func (h ValidateHandler) Validate(w http.ResponseWriter, r *http.Request) {
 					Message: fmt.Sprintf("Image %s with digest %s contains vulnerabilities", result.ArtifactName, result.Metadata.ImageID),
 				},
 			}
-			imageFromScanResult, err := image.NewImageFromScanResult(result)
+			imageFromScanResult, err := image.NewImageFromScanResult(result, h.loader)
 			if err != nil {
 				logger.Warn().Msgf("Error creating image from scan result: %v", err)
 			} else { // We should not fail if not able to input image into data store
@@ -128,7 +129,7 @@ func (h ValidateHandler) Validate(w http.ResponseWriter, r *http.Request) {
 					Message: fmt.Sprintf("Image %s with digest %s does not contain vulnerabilities", result.ArtifactName, result.Metadata.ImageID),
 				},
 			}
-			imageFromScanResult, err := image.NewImageFromScanResult(result)
+			imageFromScanResult, err := image.NewImageFromScanResult(result, h.loader)
 			imageFromScanResult.Allowed = true
 			if err != nil {
 				logger.Warn().Msgf("Error creating image from scan result: %v", err)
