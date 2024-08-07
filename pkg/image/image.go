@@ -48,6 +48,12 @@ func NewImagesFromAdmissionReview(ar v1.AdmissionReview, loader Loader) ([]Image
 			return nil, err
 		}
 		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&ds.Spec.Template.Spec, loader)...)
+	case "StatefulSet":
+		var sts appsv1.StatefulSet
+		if err := json.Unmarshal(rawObject, &sts); err != nil {
+			return nil, err
+		}
+		images = append(images, extractContainerImagesAndPullSecretsFromPodSpec(&sts.Spec.Template.Spec, loader)...)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", groupVersionKind.Kind)
 	}

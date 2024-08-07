@@ -1,10 +1,11 @@
-kube_config: "$HOME/.kube/config"
+kube_config: "/Users/igoreulalio/.kube/config"
 port: 5001
+docker_token: <placeholder>
 output_dir: "./"
 namespace: default
 trivy_path: /opt/homebrew/bin/trivy
-tls_cert_file: $HOME/certs/server.crt
-tls_key_file: $HOME/certs/server.key
+tls_cert_file: /Users/igoreulalio/sysdig/personal-projects/trivy-admission-controller/certs/server.crt
+tls_key_file: /Users/igoreulalio/sysdig/personal-projects/trivy-admission-controller/certs/server.key
 #cache:
 #  redis:
 #    port:
