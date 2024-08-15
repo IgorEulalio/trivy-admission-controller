@@ -12,6 +12,7 @@ import (
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/loader"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan/result"
@@ -21,13 +22,13 @@ import (
 
 type ValidateHandler struct {
 	Cache            cache.Cache
-	KubernetesClient kubernetes.Client
-	Scanner          scan.Scanner
-	loader           image.Loader
+	KubernetesClient kubernetes.KubernetesClient
+	Scanner          scan.TrivyScanner
+	loader           loader.Loader
 }
 
-func NewValidateHandler(c cache.Cache, client *kubernetes.Client, loader image.Loader) (*ValidateHandler, error) {
-	scanner, err := scan.NewScanner(c, *client)
+func NewValidateHandler(c cache.Cache, client *kubernetes.KubernetesClient, loader loader.Loader) (*ValidateHandler, error) {
+	scanner, err := scan.NewTrivyScanner(c, *client, new(scan.DefaultCommandRunner), scan.GetTrivyResultFromFileSystem)
 	if err != nil {
 		return nil, err
 	}

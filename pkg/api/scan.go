@@ -9,23 +9,20 @@ import (
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/loader"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan/result"
 )
 
-func NewScanHandler(c cache.Cache, client *kubernetes.Client, loader image.Loader) (*ScanHandler, error) {
-	scanner, err := scan.NewScanner(c, *client)
-	if err != nil {
-		return nil, err
-	}
-	return &ScanHandler{Cache: c, KubernetesClient: *client, Scanner: *scanner, loader: loader}, nil
+func NewScanHandler(scanner scan.Scanner, c cache.Cache, client *kubernetes.KubernetesClient, loader loader.Loader) (*ScanHandler, error) {
+	return &ScanHandler{Cache: c, KubernetesClient: *client, Scanner: scanner, loader: loader}, nil
 }
 
 type ScanHandler struct {
 	Cache            cache.Cache
-	KubernetesClient kubernetes.Client
+	KubernetesClient kubernetes.KubernetesClient
 	Scanner          scan.Scanner
-	loader           image.Loader
+	loader           loader.Loader
 }
 
 func (h ScanHandler) Scan(w http.ResponseWriter, r *http.Request) {

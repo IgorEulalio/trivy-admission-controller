@@ -30,30 +30,27 @@ type DockerAuth struct {
 	Auth string `json:"auth"`
 }
 
-type Loader struct {
-	config           loaderConfig
-	imagePullSecrets []string
-	imagePullString  string
+type RemoteLoader struct {
+	config loaderConfig
 }
 
 type loaderConfig struct {
 	insecureSkipTLSVerify bool
 }
 
-func NewLoader(pullString string, pullSecrets []string) Loader {
-	return Loader{
+// todo - implement options pattern for new loader
+func NewLoader() RemoteLoader {
+	return RemoteLoader{
 		config: loaderConfig{
 			insecureSkipTLSVerify: false,
 		},
-		imagePullSecrets: pullSecrets,
-		imagePullString:  pullString,
 	}
 }
 
-func (l Loader) GetImageDigest() (string, error) {
+func (l RemoteLoader) GetImageDigest(pullString string, imagePullSecrets []string) (string, error) {
 	logger := logging.Logger()
 
-	ref, err := name.ParseReference(l.imagePullString)
+	ref, err := name.ParseReference(pullString)
 	if err != nil {
 		return "", err
 	}
@@ -78,8 +75,8 @@ func (l Loader) GetImageDigest() (string, error) {
 		},
 	))
 
-	if len(l.imagePullSecrets) > 0 {
-		username, password, err := l.GetIdentityFromSecret()
+	if len(imagePullSecrets) > 0 {
+		username, password, err := l.GetIdentityFromSecret(imagePullSecrets)
 		if err != nil {
 			logger.Warn().Msgf("error fetching secrets, defaulting to default keychain, acr helper, ecr helper or gcr keychain: %v", err)
 		} else {
@@ -101,15 +98,15 @@ func (l Loader) GetImageDigest() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	logger.Debug().Msgf("image  %v digest: %v", l.imagePullString, digest.String())
+	logger.Debug().Msgf("image  %v digest: %v", pullString, digest.String())
 
 	return digest.String(), nil
 }
 
-func (l Loader) GetIdentityFromSecret() (string, string, error) {
+func (l RemoteLoader) GetIdentityFromSecret(pullSecrets []string) (string, string, error) {
 	var lastErr error
 	var username, password string
-	for _, pullSecret := range l.imagePullSecrets {
+	for _, pullSecret := range pullSecrets {
 		secret, err := kubernetes.GetClient().GetSecret("default", pullSecret)
 		if err != nil {
 			lastErr = err

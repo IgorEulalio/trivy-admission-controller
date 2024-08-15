@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/loader"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan/result"
 	v1 "k8s.io/api/admission/v1"
@@ -23,7 +24,7 @@ type Image struct {
 	PullSecrets     []string
 }
 
-func NewImagesFromAdmissionReview(ar v1.AdmissionReview, loader Loader) ([]Image, error) {
+func NewImagesFromAdmissionReview(ar v1.AdmissionReview, loader loader.Loader) ([]Image, error) {
 	var images []Image
 
 	rawObject := ar.Request.Object.Raw
@@ -61,7 +62,7 @@ func NewImagesFromAdmissionReview(ar v1.AdmissionReview, loader Loader) ([]Image
 	return images, nil
 }
 
-func NewImageFromScanResult(scanResult result.ScanResult, loader Loader) (*Image, error) {
+func NewImageFromScanResult(scanResult result.ScanResult, loader loader.Loader) (*Image, error) {
 	image, err := newImageFromPullString(scanResult.ArtifactName, []string{}, loader)
 	if err != nil {
 		return nil, fmt.Errorf("error creating image from scan result: %v", err)
@@ -70,7 +71,7 @@ func NewImageFromScanResult(scanResult result.ScanResult, loader Loader) (*Image
 	return image, nil
 }
 
-func newImageFromPullString(pullString string, pullSecrets []string, loader Loader) (*Image, error) {
+func newImageFromPullString(pullString string, pullSecrets []string, loader loader.Loader) (*Image, error) {
 	var registry, repository, tag string
 
 	repositoryWithRegistry, tag, found := strings.Cut(pullString, ":")
@@ -118,7 +119,7 @@ func newImageFromPullString(pullString string, pullSecrets []string, loader Load
 	}, nil
 }
 
-func extractContainerImagesAndPullSecretsFromPodSpec(podSpec *corev1.PodSpec, loader Loader) []Image {
+func extractContainerImagesAndPullSecretsFromPodSpec(podSpec *corev1.PodSpec, loader loader.Loader) []Image {
 	logger := logging.Logger()
 
 	var images []Image

@@ -9,6 +9,8 @@ import (
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	k8s "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -18,16 +20,20 @@ import (
 
 const (
 	ResourcePlural = "scannedimages"
-	AbsolutPath    = "/apis/trivyac.io/v1"
 )
 
-type Client struct {
+type Client interface {
+	GetSecret(namespace, secretName string) (*v1.Secret, error)
+	GetResource(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error)
+}
+
+type KubernetesClient struct {
 	*k8s.Clientset
 	RestConfig *rest.Config
 	Dynamic    dynamic.Interface
 }
 
-func (c Client) GetSecret(namespace, secretName string) (*v1.Secret, error) {
+func (c KubernetesClient) GetSecret(namespace, secretName string) (*v1.Secret, error) {
 	secret, err := c.CoreV1().Secrets(namespace).Get(context.TODO(), secretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get secret %s in namespace %s: %v", secretName, namespace, err)
@@ -35,8 +41,16 @@ func (c Client) GetSecret(namespace, secretName string) (*v1.Secret, error) {
 	return secret, nil
 }
 
+func (c KubernetesClient) GetResource(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
+	resource, err := c.Dynamic.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get resource %s in namespace %s: %v", name, namespace, err)
+	}
+	return resource, nil
+}
+
 var (
-	client *Client
+	client *KubernetesClient
 	once   sync.Once
 )
 
@@ -48,7 +62,7 @@ func Init() error {
 	var initErr error
 
 	once.Do(func() {
-		client = new(Client)
+		client = new(KubernetesClient)
 		configuration := config.Cfg
 		var err error
 		if configuration.KubeConfig != "" {
@@ -89,7 +103,7 @@ func Init() error {
 	return initErr
 }
 
-func GetClient() *Client {
+func GetClient() *KubernetesClient {
 	if client == nil {
 		if err := Init(); err != nil {
 			return nil

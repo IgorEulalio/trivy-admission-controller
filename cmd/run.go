@@ -8,9 +8,10 @@ import (
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/api"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
 	configuration "github.com/IgorEulalio/trivy-admission-controller/pkg/config"
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/loader"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan"
 )
 
 func Run() {
@@ -31,14 +32,19 @@ func Run() {
 		logger.Fatal().Msgf("Error creating kubernetes client: %v", err)
 	}
 
-	remoteLoader := image.RemoteLoader{}
+	remoteLoader := loader.NewLoader()
 
 	validateHandler, err := api.NewValidateHandler(c, kubernetes.GetClient(), remoteLoader)
 	if err != nil {
 		logger.Fatal().Msgf("Error creating validateHandler: %v", err)
 	}
 
-	scanHandler, err := api.NewScanHandler(c, kubernetes.GetClient(), remoteLoader)
+	scanner, err := scan.NewTrivyScanner(c, *kubernetes.GetClient(), new(scan.DefaultCommandRunner), scan.GetTrivyResultFromFileSystem)
+	if err != nil {
+		logger.Fatal().Msgf("Error creating trivy scanner: %v", err)
+	}
+
+	scanHandler, err := api.NewScanHandler(scanner, c, kubernetes.GetClient(), remoteLoader)
 	if err != nil {
 		logger.Fatal().Msgf("Error creating scanHandler: %v", err)
 	}

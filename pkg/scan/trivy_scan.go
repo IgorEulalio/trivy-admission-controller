@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -21,34 +20,37 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-type Scanner struct {
+type TrivyScanner struct {
 	OutputDir        string
 	ScannerModes     []string
 	Cache            cache.Cache
 	KubernetesClient kubernetes.Client
+	Runner           Runner
+	ReadResultFunc   func(path string) (*result.ScanResult, error)
 }
 
 const (
-	StrAllowed     = "allowed"
 	filePermission = 0755
 )
 
-func NewScanner(c cache.Cache, client kubernetes.Client) (*Scanner, error) {
+func NewTrivyScanner(c cache.Cache, client kubernetes.KubernetesClient, runner Runner, readResultFunc func(path string) (*result.ScanResult, error)) (*TrivyScanner, error) {
 
 	err := os.Mkdir(config.Cfg.OutputDir, filePermission)
 	if err != nil && !errors.Is(err, os.ErrExist) {
 		return nil, fmt.Errorf("fail to create output directory for scans: %v", err)
 	}
 
-	return &Scanner{
+	return &TrivyScanner{
 		OutputDir:        config.Cfg.OutputDir,
 		ScannerModes:     []string{"vuln"},
 		Cache:            c,
 		KubernetesClient: client,
+		Runner:           runner,
+		ReadResultFunc:   readResultFunc,
 	}, nil
 }
 
-func (s Scanner) Scan(imagesToBeScanned []image.Image) ([]result.ScanResult, error) {
+func (s TrivyScanner) Scan(imagesToBeScanned []image.Image) ([]result.ScanResult, error) {
 	logger := logging.Logger()
 
 	var results []result.ScanResult
@@ -58,17 +60,17 @@ func (s Scanner) Scan(imagesToBeScanned []image.Image) ([]result.ScanResult, err
 		command := fmt.Sprintf("%s image %s -o %s --scanners %s --format json", config.Cfg.TrivyPath, imageToBeScanned.PullString, outputFilePath, strings.Join(s.ScannerModes, ","))
 		logger.Debug().Msgf("Running command: %s for image %s", command, imageToBeScanned.PullString)
 
-		cmd := exec.Command("sh", "-c", command)
+		cmd := s.Runner.Run("sh", "-c", command)
 		var out, stderr strings.Builder
 		cmd.Stdout = &out
 		cmd.Stderr = &stderr
 
-		err := cmd.Run()
+		err := s.Runner.RunCommand(cmd)
 		if err != nil {
 			return nil, fmt.Errorf("error executing trivy scan: %v. Stdout: %v, Stderr: %v", err, out.String(), stderr.String())
 		}
 
-		result, err2 := getResultFromFileSystem(outputFilePath)
+		result, err2 := s.ReadResultFunc(outputFilePath)
 		if err2 != nil {
 			return nil, err2
 		}
@@ -79,7 +81,7 @@ func (s Scanner) Scan(imagesToBeScanned []image.Image) ([]result.ScanResult, err
 	return results, nil
 }
 
-func (s Scanner) GetImagesThatNeedScan(images []image.Image) (imagesToBeScanned []image.Image, imagesDeniedOnCache []image.Image, imagesAllowedOnCache []image.Image) {
+func (s TrivyScanner) GetImagesThatNeedScan(images []image.Image) (imagesToBeScanned []image.Image, imagesDeniedOnCache []image.Image, imagesAllowedOnCache []image.Image) {
 	logger := logging.Logger()
 
 	var toBeScanned []image.Image
@@ -111,7 +113,7 @@ func (s Scanner) GetImagesThatNeedScan(images []image.Image) (imagesToBeScanned 
 	return toBeScanned, deniedImages, allowedImages
 }
 
-func (s Scanner) GetImageFromDataStore(image image.Image) (*image.Image, error) {
+func (s TrivyScanner) GetImageFromDataStore(image image.Image) (*image.Image, error) {
 	logger := logging.Logger()
 
 	allowOrDeny, presentOnCache := s.Cache.Get(image.FormattedDigest)
@@ -132,8 +134,7 @@ func (s Scanner) GetImageFromDataStore(image image.Image) (*image.Image, error) 
 	}
 
 	formmatedDigest := strings.ReplaceAll(image.Digest, ":", "-")
-
-	resource, err := s.KubernetesClient.Dynamic.Resource(gvr).Namespace(config.Cfg.Namespace).Get(context.TODO(), formmatedDigest, metav1.GetOptions{})
+	resource, err := s.KubernetesClient.GetResource(gvr, config.Cfg.Namespace, formmatedDigest)
 	if err != nil {
 		return &image, err
 	}
@@ -144,7 +145,7 @@ func (s Scanner) GetImageFromDataStore(image image.Image) (*image.Image, error) 
 	return &image, nil
 }
 
-func (s Scanner) SetImageOnDataStore(image image.Image, duration time.Duration) error {
+func (s TrivyScanner) SetImageOnDataStore(image image.Image, duration time.Duration) error {
 
 	err := s.Cache.Set(image.FormattedDigest, image.Allowed, duration)
 	if err != nil {
@@ -180,7 +181,7 @@ func (s Scanner) SetImageOnDataStore(image image.Image, duration time.Duration) 
 	return nil
 }
 
-func getResultFromFileSystem(path string) (*result.ScanResult, error) {
+func GetTrivyResultFromFileSystem(path string) (*result.ScanResult, error) {
 	var result result.ScanResult
 
 	file, err := os.ReadFile(path)
