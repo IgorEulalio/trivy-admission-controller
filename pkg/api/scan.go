@@ -5,24 +5,20 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/datastore"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/loader"
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan/result"
 )
 
-func NewScanHandler(scanner scan.Scanner, c cache.Cache, client *kubernetes.KubernetesClient, loader loader.Loader) (*ScanHandler, error) {
-	return &ScanHandler{Cache: c, KubernetesClient: *client, Scanner: scanner, loader: loader}, nil
+func NewScanHandler(loader loader.Loader, datastore datastore.DataStore) (*ScanHandler, error) {
+	return &ScanHandler{loader: loader, Datastore: datastore}, nil
 }
 
 type ScanHandler struct {
-	Cache            cache.Cache
-	KubernetesClient kubernetes.KubernetesClient
-	Scanner          scan.Scanner
-	loader           loader.Loader
+	loader    loader.Loader
+	Datastore datastore.DataStore
 }
 
 func (h ScanHandler) Scan(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +51,7 @@ func (h ScanHandler) Scan(w http.ResponseWriter, r *http.Request) {
 		imageFromScan.Allowed = true
 	}
 
-	err = h.Scanner.SetImageOnDataStore(*imageFromScan, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
+	err = h.Datastore.SetImageOnDataStore(*imageFromScan, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

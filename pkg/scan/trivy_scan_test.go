@@ -4,55 +4,13 @@ import (
 	"errors"
 	"os/exec"
 	"testing"
-	"time"
 
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan/result"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
-
-type MockCache struct {
-	mock.Mock
-}
-
-func (m *MockCache) Set(key string, value interface{}, expiration time.Duration) error {
-	return nil
-}
-
-func (m *MockCache) Get(key string) (interface{}, bool) {
-	return nil, false
-}
-
-func (m *MockCache) Delete(key string) error {
-	return nil
-}
-
-type MockKubernetesClient struct {
-	mock.Mock
-}
-
-func (m *MockKubernetesClient) GetSecret(namespace, secretName string) (*v1.Secret, error) {
-	return &v1.Secret{
-		TypeMeta:   metav1.TypeMeta{},
-		ObjectMeta: metav1.ObjectMeta{},
-		Immutable:  nil,
-		Data:       nil,
-		StringData: nil,
-		Type:       "",
-	}, nil
-}
-
-func (m *MockKubernetesClient) GetResource(gvr schema.GroupVersionResource, namespace, name string) (*unstructured.Unstructured, error) {
-	return nil, nil
-}
 
 type MockCommandRunner struct {
 	mock.Mock
@@ -165,28 +123,24 @@ var trivyScannerTestCases = []trivyScannerTestCase{
 	},
 }
 
-func newTestTrivyScanner(cache cache.Cache, client kubernetes.Client, runner scan.Runner, readResultFunc func(path string) (*result.ScanResult, error)) *scan.TrivyScanner {
+func newTestTrivyScanner(runner scan.Runner, readResultFunc func(path string) (*result.ScanResult, error)) *scan.TrivyScanner {
 	return &scan.TrivyScanner{
-		OutputDir:        "./test-output",
-		ScannerModes:     []string{"vuln"},
-		Cache:            cache,
-		KubernetesClient: client,
-		Runner:           runner,
-		ReadResultFunc:   readResultFunc,
+		OutputDir:      "./test-output",
+		ScannerModes:   []string{"vuln"},
+		Runner:         runner,
+		ReadResultFunc: readResultFunc,
 	}
 }
 
 func TestTrivyScannerScan(t *testing.T) {
 	for _, tt := range trivyScannerTestCases {
 		t.Run(tt.name, func(t *testing.T) {
-			mockCache := new(MockCache)
-			mockClient := new(MockKubernetesClient)
 			mockCommandRunner := new(MockCommandRunner)
 
 			mockCommandRunner.On("Run", "sh", "-c", mock.Anything).Return(tt.mockExecCmd)
 			mockCommandRunner.On("RunCommand", mock.Anything).Return(tt.runCommandError)
 
-			scanner := newTestTrivyScanner(mockCache, mockClient, mockCommandRunner, tt.mockReadResultFunc)
+			scanner := newTestTrivyScanner(mockCommandRunner, tt.mockReadResultFunc)
 
 			results, err := scanner.Scan(tt.imagesToBeScanned)
 

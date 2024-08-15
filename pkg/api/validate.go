@@ -8,10 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/cache"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/config"
+	"github.com/IgorEulalio/trivy-admission-controller/pkg/datastore"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/image"
-	"github.com/IgorEulalio/trivy-admission-controller/pkg/kubernetes"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/loader"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/logging"
 	"github.com/IgorEulalio/trivy-admission-controller/pkg/scan"
@@ -21,18 +20,13 @@ import (
 )
 
 type ValidateHandler struct {
-	Cache            cache.Cache
-	KubernetesClient kubernetes.KubernetesClient
-	Scanner          scan.TrivyScanner
-	loader           loader.Loader
+	Scanner   scan.Scanner
+	Loader    loader.Loader
+	DataStore datastore.DataStore
 }
 
-func NewValidateHandler(c cache.Cache, client *kubernetes.KubernetesClient, loader loader.Loader) (*ValidateHandler, error) {
-	scanner, err := scan.NewTrivyScanner(c, *client, new(scan.DefaultCommandRunner), scan.GetTrivyResultFromFileSystem)
-	if err != nil {
-		return nil, err
-	}
-	return &ValidateHandler{Cache: c, KubernetesClient: *client, Scanner: *scanner, loader: loader}, nil
+func NewValidateHandler(scanner scan.Scanner, loader loader.Loader, datastore datastore.DataStore) (*ValidateHandler, error) {
+	return &ValidateHandler{Scanner: scanner, Loader: loader, DataStore: datastore}, nil
 }
 
 func (h ValidateHandler) Validate(w http.ResponseWriter, r *http.Request) {
@@ -57,12 +51,12 @@ func (h ValidateHandler) Validate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	images, err := image.NewImagesFromAdmissionReview(admissionReview, h.loader)
+	images, err := image.NewImagesFromAdmissionReview(admissionReview, h.Loader)
 	if err != nil {
 		return
 	}
 
-	imagesToBeScanned, imagesDeniedOnCache, imagesAllowedOnCache := h.Scanner.GetImagesThatNeedScan(images)
+	imagesToBeScanned, imagesDeniedOnCache, imagesAllowedOnCache := h.DataStore.GetImagesThatNeedScan(images)
 	var containsVulnerability bool
 	var admissionResponse *admissionv1.AdmissionResponse
 	var scanResults []result.ScanResult
@@ -112,12 +106,12 @@ func (h ValidateHandler) Validate(w http.ResponseWriter, r *http.Request) {
 					Message: fmt.Sprintf("Image %s with digest %s contains vulnerabilities", result.ArtifactName, result.Metadata.ImageID),
 				},
 			}
-			imageFromScanResult, err := image.NewImageFromScanResult(result, h.loader)
+			imageFromScanResult, err := image.NewImageFromScanResult(result, h.Loader)
 			if err != nil {
 				logger.Warn().Msgf("Error creating image from scan result: %v", err)
 			} else { // We should not fail if not able to input image into data store
 				if imageFromScanResult.Digest != "" {
-					err := h.Scanner.SetImageOnDataStore(*imageFromScanResult, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
+					err := h.DataStore.SetImageOnDataStore(*imageFromScanResult, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
 					if err != nil {
 						logger.Warn().Msgf("Error inputing image into data store: %v", err)
 					}
@@ -130,13 +124,13 @@ func (h ValidateHandler) Validate(w http.ResponseWriter, r *http.Request) {
 					Message: fmt.Sprintf("Image %s with digest %s does not contain vulnerabilities", result.ArtifactName, result.Metadata.ImageID),
 				},
 			}
-			imageFromScanResult, err := image.NewImageFromScanResult(result, h.loader)
+			imageFromScanResult, err := image.NewImageFromScanResult(result, h.Loader)
 			imageFromScanResult.Allowed = true
 			if err != nil {
 				logger.Warn().Msgf("Error creating image from scan result: %v", err)
 			} else {
 				if imageFromScanResult.Digest != "" {
-					err := h.Scanner.SetImageOnDataStore(*imageFromScanResult, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
+					err := h.DataStore.SetImageOnDataStore(*imageFromScanResult, time.Duration(config.Cfg.CacheConfig.ObjectTTL))
 					if err != nil {
 						logger.Warn().Msgf("Error inputing image into data store: %v", err)
 					}
